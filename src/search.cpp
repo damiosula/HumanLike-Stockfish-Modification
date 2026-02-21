@@ -161,6 +161,7 @@ Search::Worker::Worker(SharedState&                    sharedState,
                        NumaReplicatedAccessToken       token) :
     // Unpack the SharedState struct into member variables
     sharedHistory(sharedState.sharedHistories.at(token.get_numa_index())),
+    opponentModel(sharedState.opponentModel),
     threadIdx(threadId),
     numaThreadIdx(numaThreadId),
     numaTotal(numaTotalThreads),
@@ -471,7 +472,15 @@ void Search::Worker::iterative_deepening() {
 
         // If the skill level is enabled and time is up, pick a sub-optimal best move
         if (skill.enabled() && skill.time_to_pick(rootDepth))
-            skill.pick_best(rootMoves, multiPV);
+        {
+            if (opponentModel && opponentModel->is_ready()
+                && int(options["UseOpponentModel"]))
+                skill.pick_best_with_cnn(rootMoves, multiPV, rootPos,
+                                         int(options["OpponentElo"]),
+                                         int(options["PlayingElo"]), opponentModel);
+            else
+                skill.pick_best(rootMoves, multiPV);
+        }
 
         // Use part of the gained time from a previous stable move for the current move
         for (auto&& th : threads)
@@ -537,9 +546,19 @@ void Search::Worker::iterative_deepening() {
 
     // If the skill level is enabled, swap the best PV line with the sub-optimal one
     if (skill.enabled())
-        std::swap(rootMoves[0],
-                  *std::find(rootMoves.begin(), rootMoves.end(),
-                             skill.best ? skill.best : skill.pick_best(rootMoves, multiPV)));
+    {
+        Move pickedMove;
+        if (opponentModel && opponentModel->is_ready() && int(options["UseOpponentModel"]))
+            pickedMove = skill.best
+                           ? skill.best
+                           : skill.pick_best_with_cnn(rootMoves, multiPV, rootPos,
+                                                      int(options["OpponentElo"]),
+                                                      int(options["PlayingElo"]),
+                                                      opponentModel);
+        else
+            pickedMove = skill.best ? skill.best : skill.pick_best(rootMoves, multiPV);
+        std::swap(rootMoves[0], *std::find(rootMoves.begin(), rootMoves.end(), pickedMove));
+    }
 }
 
 
@@ -1934,6 +1953,70 @@ Move Skill::pick_best(const RootMoves& rootMoves, size_t multiPV) {
         }
     }
 
+    return best;
+}
+
+// Returns true if the handicap level warrants making a human-like mistake this move.
+// Higher skill levels (stronger play) make fewer mistakes.
+bool Skill::should_make_mistake() const {
+    static PRNG rng(now() + 17);  // Separate PRNG from pick_best
+
+    // Mistake chance: 0% at level 20, ~40% at level 0
+    int mistakeChance = static_cast<int>((20.0 - level) * 2.0);
+    return (rng.rand<unsigned>() % 100) < static_cast<unsigned>(mistakeChance);
+}
+
+// CNN-enhanced move selection. Uses the opponent model to pick moves that
+// maximise exploitability against the human opponent instead of random selection.
+Move Skill::pick_best_with_cnn(const RootMoves& rootMoves,
+                                size_t           multiPV,
+                                Position&        pos,
+                                int              opponentElo,
+                                int              targetElo,
+                                OpponentModel*   model) {
+    if (!model || !model->is_ready() || rootMoves.empty())
+        return pick_best(rootMoves, multiPV);
+
+    // Collect candidate moves from the top MultiPV lines
+    std::vector<Move> candidates;
+    candidates.reserve(multiPV);
+    for (size_t i = 0; i < std::min(rootMoves.size(), multiPV); ++i)
+        candidates.push_back(rootMoves[i].pv[0]);
+
+    Move bestMove = candidates[0];  // Objectively best move
+
+    // Rank all candidates by how exploitable they are against the opponent
+    auto rankings = model->rank_candidate_moves(pos, candidates, opponentElo);
+
+    if (rankings.empty())
+    {
+        best = bestMove;
+        return best;
+    }
+
+    // 1. If the top-ranked move sets a strong trap, play it immediately
+    if (rankings[0].trapPotential > 0.6f)
+    {
+        best = rankings[0].move;
+        return best;
+    }
+
+    // 2. Optionally make a human-like "mistake": pick a suboptimal move that
+    //    the opponent is likely to mishandle rather than punish
+    if (should_make_mistake() && rankings.size() > 1)
+    {
+        for (size_t i = 1; i < std::min(rankings.size(), size_t(4)); ++i)
+        {
+            if (model->is_smart_mistake(pos, bestMove, rankings[i].move, targetElo, opponentElo))
+            {
+                best = rankings[i].move;
+                return best;
+            }
+        }
+    }
+
+    // 3. Default: choose the move with the highest exploitability score
+    best = rankings[0].move;
     return best;
 }
 

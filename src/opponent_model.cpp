@@ -1,282 +1,238 @@
 #include "opponent_model.h"
-#include "movegen.h"
-#include "evaluate.h"
+
 #include <algorithm>
-#include <cstring>
 #include <cmath>
+#include <cstring>
+
+#include "evaluate.h"
+#include "movegen.h"
 
 namespace Stockfish {
 
-OpponentModel::OpponentModel() {
-    // Constructor
-}
+OpponentModel::OpponentModel() {}
 
 OpponentModel::~OpponentModel() {
-    // Clean up CNN model
-    if (cnnModel) {
-        // Free your model resources
-    }
+    // Clean up framework-specific model resources here when CNN is integrated.
+    // e.g. for ONNX: delete session; session = nullptr;
 }
 
-bool OpponentModel::load_model(const std::string& modelPath) {
-    // TODO: Load your CNN model from file
-    // This depends on your framework:
-    // - TensorFlow: load saved_model
-    // - PyTorch: load traced/scripted model
-    // - ONNX: load .onnx file
-    
-    // For now, return false (stub)
+bool OpponentModel::load_model(const std::string& /*modelPath*/) {
+    // TODO: Load CNN model from file.
+    // Choose one framework and implement here:
+    //   ONNX Runtime: Ort::Session session(*env, modelPath.c_str(), sessionOptions);
+    //   LibTorch:     module = torch::jit::load(modelPath);
     modelLoaded = false;
     return modelLoaded;
 }
 
-std::vector<OpponentResponse> OpponentModel::predict_responses(
-    const Position& pos,
-    int opponentElo,
-    int topN
-) const {
+// Predict the top N moves an opponent at opponentElo is likely to play.
+// Returns an empty vector until the CNN is integrated.
+std::vector<OpponentResponse>
+OpponentModel::predict_responses(const Position& /*pos*/, int /*opponentElo*/, int /*topN*/) const {
     std::vector<OpponentResponse> responses;
-    
-    if (!modelLoaded) {
+
+    if (!modelLoaded)
         return responses;
-    }
-    
-    // TODO: Implement CNN inference
-    // 1. Convert position to CNN input format
-    // 2. Run CNN forward pass
-    // 3. Convert output to move probabilities
-    // 4. Return top N moves
-    
-    // STUB: For now, return empty
-    // You'll implement this after choosing your CNN framework
-    
+
+    // TODO: Implement CNN inference:
+    //   1. position_to_input(pos, inputBuffer)
+    //   2. Run forward pass
+    //   3. output_to_moves(outputBuffer, pos, responses)
+    //   4. Sort by probability, truncate to topN
+
     return responses;
 }
 
-float OpponentModel::get_move_probability(
-    const Position& pos,
-    Move move,
-    int opponentElo
-) const {
-    if (!modelLoaded) {
+float OpponentModel::get_move_probability(const Position& pos, Move move, int opponentElo) const {
+    if (!modelLoaded)
         return 0.0f;
-    }
-    
-    // Get all predictions and find this specific move
+
     auto responses = predict_responses(pos, opponentElo, 20);
-    
-    for (const auto& resp : responses) {
-        if (resp.move == move) {
+    for (const auto& resp : responses)
+        if (resp.move == move)
             return resp.probability;
-        }
-    }
-    
-    return 0.0f;  // Move not in top predictions
+
+    return 0.0f;
 }
 
-// NEW: Core function for smart handicapping
-std::vector<MoveExploitability> OpponentModel::rank_candidate_moves(
-    const Position& pos,
-    const std::vector<Move>& candidates,
-    int opponentElo
-) const {
+// Rank candidate moves by how exploitable they are against the opponent.
+// Uses do/undo moves on pos so no Position copy is required.
+std::vector<MoveExploitability>
+OpponentModel::rank_candidate_moves(Position& pos, const std::vector<Move>& candidates,
+                                     int opponentElo) const {
     std::vector<MoveExploitability> rankings;
-    
-    if (!modelLoaded || candidates.empty()) {
+
+    if (!modelLoaded || candidates.empty())
         return rankings;
-    }
-    
-    // For each candidate move, evaluate how exploitable it is
-    for (const Move& move : candidates) {
+
+    for (const Move& move : candidates)
+    {
         MoveExploitability exploit;
         exploit.move = move;
-        
-        // Evaluate trap potential
-        exploit.trapPotential = evaluate_trap_potential(pos, move, opponentElo);
-        
-        // Calculate expected value based on opponent responses
+
+        // Apply our move temporarily to evaluate trap potential and responses
         StateInfo st;
-        Position posCopy = pos;
-        posCopy.do_move(move, st);
-        
-        auto responses = predict_responses(posCopy, opponentElo, 5);
-        
-        // Calculate weighted outcome
+        pos.do_move(move, st);
+
+        exploit.trapPotential = evaluate_trap_potential(pos, Move::none(), opponentElo);
+
+        auto responses = predict_responses(pos, opponentElo, 5);
+
         float expectedOutcome = 0.0f;
-        float totalProb = 0.0f;
-        float blunderProb = 0.0f;
-        
-        for (const auto& resp : responses) {
-            float outcome = evaluate_after_opponent_response(posCopy, move, resp);
+        float totalProb       = 0.0f;
+        float blunderProb     = 0.0f;
+
+        for (const auto& resp : responses)
+        {
+            float outcome = evaluate_after_opponent_response(pos, resp);
             expectedOutcome += resp.probability * outcome;
             totalProb += resp.probability;
-            
-            // Track if opponent likely to blunder
-            if (outcome > 2.0f) {  // We gain significant advantage
+
+            if (outcome > 0.5f)  // We gain significant advantage after their response
                 blunderProb += resp.probability;
-            }
         }
-        
-        posCopy.undo_move(move);
-        
-        exploit.blunderRate = blunderProb;
-        exploit.difficulty = 1.0f - (totalProb > 0 ? expectedOutcome / totalProb : 0.5f);
-        
-        // Combined metric: balance trap potential, blunder rate, and difficulty
-        exploit.expectedValue = 
-            0.4f * exploit.trapPotential +
-            0.4f * exploit.blunderRate +
-            0.2f * exploit.difficulty;
-        
+
+        pos.undo_move(move);
+
+        exploit.blunderRate  = blunderProb;
+        exploit.difficulty   = 1.0f - (totalProb > 0 ? expectedOutcome / totalProb : 0.5f);
+        exploit.expectedValue = 0.4f * exploit.trapPotential + 0.4f * exploit.blunderRate
+                              + 0.2f * exploit.difficulty;
+
         rankings.push_back(exploit);
     }
-    
-    // Sort by expected value (highest first)
+
     std::sort(rankings.begin(), rankings.end(),
-        [](const MoveExploitability& a, const MoveExploitability& b) {
-            return a.expectedValue > b.expectedValue;
-        });
-    
+              [](const MoveExploitability& a, const MoveExploitability& b) {
+                  return a.expectedValue > b.expectedValue;
+              });
+
     return rankings;
 }
 
-// NEW: Determine if a "mistake" is human-like or stupid
-bool OpponentModel::is_smart_mistake(
-    const Position& pos,
-    Move bestMove,
-    Move candidateMove,
-    int targetElo,
-    int opponentElo
-) const {
-    if (!modelLoaded) {
-        return false;  // Without model, can't evaluate
-    }
-    
-    // A "smart mistake" is one that:
-    // 1. A player at targetElo might reasonably make
-    // 2. Is hard for opponentElo to punish
-    // 3. Doesn't lose material immediately
-    
-    // Check if target ELO players make this move
+// Returns true if candidateMove is a "smart" human-like mistake:
+//   - Players at targetElo sometimes make it (probability > 5%)
+//   - The opponent at opponentElo is unlikely to punish it immediately
+bool OpponentModel::is_smart_mistake(Position& pos,
+                                      Move      /*bestMove*/,
+                                      Move      candidateMove,
+                                      int       targetElo,
+                                      int       opponentElo) const {
+    if (!modelLoaded)
+        return false;
+
+    // Check how often target-ELO players make this move
     float targetProb = get_move_probability(pos, candidateMove, targetElo);
-    
-    if (targetProb < 0.05f) {
-        return false;  // Move too rare for target ELO
-    }
-    
-    // Check opponent's ability to punish
+    if (targetProb < 0.05f)
+        return false;  // Move too rare for target ELO — looks inhuman
+
+    // Play candidateMove and check if the opponent can easily punish it
     StateInfo st;
-    Position posCopy = pos;
-    posCopy.do_move(candidateMove, st);
-    
-    auto responses = predict_responses(posCopy, opponentElo, 3);
-    
-    // If opponent likely finds the refutation, this is a stupid mistake
-    for (const auto& resp : responses) {
+    pos.do_move(candidateMove, st);
+
+    auto responses = predict_responses(pos, opponentElo, 3);
+
+    bool opponentPunishes = false;
+    for (const auto& resp : responses)
+    {
         StateInfo st2;
-        posCopy.do_move(resp.move, st2);
-        Value eval = -evaluate(posCopy);
-        posCopy.undo_move(resp.move);
-        
-        if (eval < -300 && resp.probability > 0.4f) {
-            posCopy.undo_move(candidateMove);
-            return false;  // Opponent likely punishes hard
+        pos.do_move(resp.move, st2);
+        // After opponent plays, evaluate from our (side_to_move) perspective.
+        // A strongly negative value means the opponent successfully punished us.
+        Value eval = Value(Eval::simple_eval(pos));
+        pos.undo_move(resp.move);
+
+        if (eval < -300 && resp.probability > 0.4f)
+        {
+            opponentPunishes = true;
+            break;
         }
     }
-    
-    posCopy.undo_move(candidateMove);
-    return true;  // Move is reasonably human-like
+
+    pos.undo_move(candidateMove);
+    return !opponentPunishes;
 }
 
-// NEW: Evaluate trap potential
-float OpponentModel::evaluate_trap_potential(
-    const Position& pos,
-    Move ourMove,
-    int opponentElo
-) const {
-    if (!modelLoaded) {
+// Evaluate how likely ourMove is to set a trap the opponent will fall into.
+// When called internally from rank_candidate_moves, ourMove is Move::none()
+// because the move has already been applied to pos.
+float OpponentModel::evaluate_trap_potential(Position& pos, Move ourMove, int opponentElo) const {
+    if (!modelLoaded)
         return 0.0f;
-    }
-    
-    StateInfo st;
-    Position posCopy = pos;
-    posCopy.do_move(ourMove, st);
-    
-    auto responses = predict_responses(posCopy, opponentElo, 10);
-    
-    float trapScore = 0.0f;
-    
-    // A move has trap potential if:
-    // - Opponent has multiple plausible responses
-    // - Several of them lead to bad outcomes for opponent
-    // - The "best" response is not obvious
-    
-    int plausibleMoves = 0;
-    int badResponses = 0;
-    
-    for (const auto& resp : responses) {
-        if (resp.probability > 0.05f) {
-            plausibleMoves++;
-            
-            StateInfo st2;
-            posCopy.do_move(resp.move, st2);
-            Value eval = -evaluate(posCopy);
-            posCopy.undo_move(resp.move);
-            
-            // If this response is bad for opponent
-            if (eval > 100) {
-                badResponses++;
-                trapScore += resp.probability;
-            }
+
+    // If a move is provided, apply it first
+    StateInfo stOur;
+    bool      didOurMove = ourMove != Move::none();
+    if (didOurMove)
+        pos.do_move(ourMove, stOur);
+
+    auto responses = predict_responses(pos, opponentElo, 10);
+
+    float trapScore    = 0.0f;
+    int   plausible    = 0;
+    int   badResponses = 0;
+
+    for (const auto& resp : responses)
+    {
+        if (resp.probability <= 0.05f)
+            continue;
+
+        ++plausible;
+
+        StateInfo st2;
+        pos.do_move(resp.move, st2);
+        // After opponent plays, positive eval = we still have advantage = bad for opponent
+        Value eval = Value(Eval::simple_eval(pos));
+        pos.undo_move(resp.move);
+
+        if (eval > 100)
+        {
+            ++badResponses;
+            trapScore += resp.probability;
         }
     }
-    
-    posCopy.undo_move(ourMove);
-    
-    // High trap potential: multiple plausible moves, many are bad
-    if (plausibleMoves > 3 && badResponses >= 2) {
+
+    if (didOurMove)
+        pos.undo_move(ourMove);
+
+    // High trap potential: many plausible responses and many are poor for the opponent
+    if (plausible > 3 && badResponses >= 2)
         return std::min(1.0f, trapScore * 1.5f);
-    }
-    
+
     return trapScore;
 }
 
-float OpponentModel::evaluate_after_opponent_response(
-    Position& pos,
-    Move ourMove,
-    const OpponentResponse& oppResponse
-) const {
-    // Quick evaluation of position after opponent responds
+// Evaluate the position after the opponent plays oppResponse.move.
+// pos must have our preceding move already applied; it will be restored on return.
+float OpponentModel::evaluate_after_opponent_response(Position&               pos,
+                                                       const OpponentResponse& oppResponse) const {
     StateInfo st;
     pos.do_move(oppResponse.move, st);
-    
-    // Use Stockfish's evaluate function
-    Value eval = evaluate(pos);
-    
+
+    // Simple material evaluation from our (side_to_move) perspective.
+    // Positive = good for us. Normalised to [-1, 1] via tanh.
+    float eval = static_cast<float>(Eval::simple_eval(pos)) / 300.0f;
+
     pos.undo_move(oppResponse.move);
-    
-    // Convert to normalized score (-1.0 to 1.0)
-    return std::tanh(eval / 300.0f);
+
+    return std::tanh(eval);
 }
 
-void OpponentModel::position_to_input(const Position& pos, float* inputBuffer) const {
-    // TODO: Convert Stockfish position to your CNN's input format
+void OpponentModel::position_to_input(const Position& /*pos*/, float* /*inputBuffer*/) const {
+    // TODO: Encode the position as CNN input.
     // Common approaches:
-    // - Bitboard representation
-    // - Piece-centric encoding
-    // - Multi-channel 8x8 image (like AlphaZero)
+    //   - Multi-channel 8×8 planes (AlphaZero style): piece type × colour × square
+    //   - Bitboard representation flattened to float array
+    //   - Piece-centric feature list
 }
 
-void OpponentModel::output_to_moves(
-    const float* output,
-    const Position& pos,
-    std::vector<OpponentResponse>& responses
-) const {
-    // TODO: Convert CNN output logits/probabilities to legal moves
-    // 1. Get all legal moves
-    // 2. Map CNN output indices to moves
-    // 3. Sort by probability
-    // 4. Apply softmax if needed
+void OpponentModel::output_to_moves(const float* /*output*/, const Position& /*pos*/,
+                                     std::vector<OpponentResponse>& /*responses*/) const {
+    // TODO: Convert CNN output logits/probabilities to a list of (move, probability) pairs.
+    //   1. Enumerate legal moves
+    //   2. Map each move to an output index (e.g. (from_sq * 64 + to_sq) encoding)
+    //   3. Apply softmax over legal move indices if needed
+    //   4. Sort by probability descending
 }
 
-} // namespace Stockfish
+}  // namespace Stockfish
