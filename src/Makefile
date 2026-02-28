@@ -449,7 +449,7 @@ LDFLAGS = $(ENV_LDFLAGS) $(EXTRALDFLAGS)
 ### e.g. make build ARCH=apple-silicon ONNX_ROOT=/usr/local/onnxruntime
 ONNX_ROOT ?= /usr/local/onnxruntime
 CXXFLAGS  += -I$(ONNX_ROOT)/include/onnxruntime/core/session
-LDFLAGS   += -L$(ONNX_ROOT)/lib -lonnxruntime
+LDFLAGS   += -L$(ONNX_ROOT)/lib -lonnxruntime -Wl,-rpath,$(ONNX_ROOT)/lib
 
 ifeq ($(COMP),)
 	COMP=gcc
