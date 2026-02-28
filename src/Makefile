@@ -444,6 +444,13 @@ CXXFLAGS = $(ENV_CXXFLAGS) -Wall -Wcast-qual -fno-exceptions -std=c++17 $(EXTRAC
 DEPENDFLAGS = $(ENV_DEPENDFLAGS) -std=c++17
 LDFLAGS = $(ENV_LDFLAGS) $(EXTRALDFLAGS)
 
+### ONNX Runtime — set ONNX_ROOT to your onnxruntime install directory.
+### Download from: https://github.com/microsoft/onnxruntime/releases
+### e.g. make build ARCH=apple-silicon ONNX_ROOT=/usr/local/onnxruntime
+ONNX_ROOT ?= /usr/local/onnxruntime
+CXXFLAGS  += -I$(ONNX_ROOT)/include/onnxruntime/core/session
+LDFLAGS   += -L$(ONNX_ROOT)/lib -lonnxruntime
+
 ifeq ($(COMP),)
 	COMP=gcc
 endif
@@ -1130,6 +1137,11 @@ config-sanity: net
 
 $(EXE): $(OBJS)
 	+$(CXX) -o $@ $(OBJS) $(LDFLAGS)
+
+# opponent_model.cpp uses ONNX Runtime C++ API which requires exceptions.
+# Compile it with -fexceptions, overriding the global -fno-exceptions flag.
+opponent_model.o: opponent_model.cpp $(HEADERS)
+	$(CXX) $(filter-out -fno-exceptions,$(CXXFLAGS)) -fexceptions -c -o $@ $<
 
 # Force recompilation to ensure version info is up-to-date
 misc.o: FORCE
