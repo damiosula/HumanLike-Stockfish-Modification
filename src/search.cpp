@@ -477,7 +477,8 @@ void Search::Worker::iterative_deepening() {
                 && int(options["UseOpponentModel"]))
                 skill.pick_best_with_cnn(rootMoves, multiPV, rootPos,
                                          int(options["OpponentElo"]),
-                                         int(options["PlayingElo"]), opponentModel);
+                                         int(options["PlayingElo"]), opponentModel,
+                                         [this](const Position& p) { return evaluate(p); });
             else
                 skill.pick_best(rootMoves, multiPV);
         }
@@ -554,7 +555,8 @@ void Search::Worker::iterative_deepening() {
                            : skill.pick_best_with_cnn(rootMoves, multiPV, rootPos,
                                                       int(options["OpponentElo"]),
                                                       int(options["PlayingElo"]),
-                                                      opponentModel);
+                                                      opponentModel,
+                                                      [this](const Position& p) { return evaluate(p); });
         else
             pickedMove = skill.best ? skill.best : skill.pick_best(rootMoves, multiPV);
         std::swap(rootMoves[0], *std::find(rootMoves.begin(), rootMoves.end(), pickedMove));
@@ -1968,12 +1970,13 @@ bool Skill::should_make_mistake() const {
 
 // CNN-enhanced move selection. Uses the opponent model to pick moves that
 // maximise exploitability against the human opponent instead of random selection.
-Move Skill::pick_best_with_cnn(const RootMoves& rootMoves,
-                                size_t           multiPV,
-                                Position&        pos,
-                                int              opponentElo,
-                                int              targetElo,
-                                OpponentModel*   model) {
+Move Skill::pick_best_with_cnn(const RootMoves&             rootMoves,
+                                size_t                       multiPV,
+                                Position&                    pos,
+                                int                          opponentElo,
+                                int                          targetElo,
+                                OpponentModel*               model,
+                                const OpponentModel::EvalFn& evalFn) {
     if (!model || !model->is_ready() || rootMoves.empty())
         return pick_best(rootMoves, multiPV);
 
@@ -1986,7 +1989,7 @@ Move Skill::pick_best_with_cnn(const RootMoves& rootMoves,
     Move bestMove = candidates[0];  // Objectively best move
 
     // Rank all candidates by how exploitable they are against the opponent
-    auto rankings = model->rank_candidate_moves(pos, candidates, opponentElo);
+    auto rankings = model->rank_candidate_moves(pos, candidates, opponentElo, evalFn);
 
     if (rankings.empty())
     {
@@ -2007,7 +2010,7 @@ Move Skill::pick_best_with_cnn(const RootMoves& rootMoves,
     {
         for (size_t i = 1; i < std::min(rankings.size(), size_t(4)); ++i)
         {
-            if (model->is_smart_mistake(pos, bestMove, rankings[i].move, targetElo, opponentElo))
+            if (model->is_smart_mistake(pos, bestMove, rankings[i].move, targetElo, opponentElo, evalFn))
             {
                 best = rankings[i].move;
                 return best;

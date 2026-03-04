@@ -10,7 +10,6 @@
 // ONNX Runtime — only included here so other TUs don't need it
 #include <onnxruntime_cxx_api.h>
 
-#include "evaluate.h"
 #include "misc.h"
 #include "movegen.h"
 
@@ -252,7 +251,7 @@ float OpponentModel::get_move_probability(const Position& pos, Move move, int op
 
 std::vector<MoveExploitability>
 OpponentModel::rank_candidate_moves(Position& pos, const std::vector<Move>& candidates,
-                                     int opponentElo) const {
+                                     int opponentElo, const EvalFn& evalFn) const {
     std::vector<MoveExploitability> rankings;
     if (!modelLoaded || candidates.empty())
         return rankings;
@@ -264,7 +263,7 @@ OpponentModel::rank_candidate_moves(Position& pos, const std::vector<Move>& cand
         StateInfo st;
         pos.do_move(move, st);
 
-        exploit.trapPotential = evaluate_trap_potential(pos, Move::none(), opponentElo);
+        exploit.trapPotential = evaluate_trap_potential(pos, Move::none(), opponentElo, evalFn);
 
         auto responses = predict_responses(pos, opponentElo, 5);
 
@@ -273,7 +272,7 @@ OpponentModel::rank_candidate_moves(Position& pos, const std::vector<Move>& cand
         float blunderProb     = 0.0f;
 
         for (const auto& resp : responses) {
-            float outcome = evaluate_after_opponent_response(pos, resp);
+            float outcome = evaluate_after_opponent_response(pos, resp, evalFn);
             expectedOutcome += resp.probability * outcome;
             totalProb += resp.probability;
             if (outcome > 0.5f)
@@ -299,7 +298,7 @@ OpponentModel::rank_candidate_moves(Position& pos, const std::vector<Move>& cand
 // ── is_smart_mistake ─────────────────────────────────────────────────────────
 
 bool OpponentModel::is_smart_mistake(Position& pos, Move /*bestMove*/, Move candidateMove,
-                                      int targetElo, int opponentElo) const {
+                                      int targetElo, int opponentElo, const EvalFn& evalFn) const {
     if (!modelLoaded)
         return false;
 
@@ -310,13 +309,13 @@ bool OpponentModel::is_smart_mistake(Position& pos, Move /*bestMove*/, Move cand
     StateInfo st;
     pos.do_move(candidateMove, st);
 
-    auto responses       = predict_responses(pos, opponentElo, 3);
+    auto responses        = predict_responses(pos, opponentElo, 3);
     bool opponentPunishes = false;
 
     for (const auto& resp : responses) {
         StateInfo st2;
         pos.do_move(resp.move, st2);
-        Value eval = Value(Eval::simple_eval(pos));
+        Value eval = evalFn(pos);
         pos.undo_move(resp.move);
 
         if (eval < -300 && resp.probability > 0.4f) {
@@ -331,7 +330,8 @@ bool OpponentModel::is_smart_mistake(Position& pos, Move /*bestMove*/, Move cand
 
 // ── evaluate_trap_potential ───────────────────────────────────────────────────
 
-float OpponentModel::evaluate_trap_potential(Position& pos, Move ourMove, int opponentElo) const {
+float OpponentModel::evaluate_trap_potential(Position& pos, Move ourMove, int opponentElo,
+                                              const EvalFn& evalFn) const {
     if (!modelLoaded)
         return 0.0f;
 
@@ -353,7 +353,7 @@ float OpponentModel::evaluate_trap_potential(Position& pos, Move ourMove, int op
 
         StateInfo st2;
         pos.do_move(resp.move, st2);
-        Value eval = Value(Eval::simple_eval(pos));
+        Value eval = evalFn(pos);
         pos.undo_move(resp.move);
 
         if (eval > 100) {
@@ -374,10 +374,11 @@ float OpponentModel::evaluate_trap_potential(Position& pos, Move ourMove, int op
 // ── evaluate_after_opponent_response ─────────────────────────────────────────
 
 float OpponentModel::evaluate_after_opponent_response(Position&               pos,
-                                                       const OpponentResponse& oppResponse) const {
+                                                       const OpponentResponse& oppResponse,
+                                                       const EvalFn&           evalFn) const {
     StateInfo st;
     pos.do_move(oppResponse.move, st);
-    float eval = static_cast<float>(Eval::simple_eval(pos)) / 300.0f;
+    float eval = static_cast<float>(evalFn(pos)) / 300.0f;
     pos.undo_move(oppResponse.move);
     return std::tanh(eval);
 }

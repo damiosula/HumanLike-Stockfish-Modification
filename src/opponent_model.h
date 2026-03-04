@@ -1,6 +1,7 @@
 #ifndef OPPONENT_MODEL_H_INCLUDED
 #define OPPONENT_MODEL_H_INCLUDED
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -28,6 +29,10 @@ struct MoveExploitability {
 
 class OpponentModel {
    public:
+    // Callback type for position evaluation — caller supplies Stockfish's full
+    // NNUE evaluator so this class stays decoupled from Worker internals.
+    using EvalFn = std::function<Value(const Position&)>;
+
     OpponentModel();
     ~OpponentModel();
 
@@ -46,20 +51,27 @@ class OpponentModel {
 
     // Evaluate which of OUR candidate moves is best to play.
     // pos is non-const: moves are made/undone internally.
+    // evalFn: Stockfish's NNUE evaluator — returns centipawn score from the
+    // perspective of the side to move. Pass Worker::evaluate() via lambda.
     std::vector<MoveExploitability> rank_candidate_moves(Position&                pos,
                                                          const std::vector<Move>& candidates,
-                                                         int opponentElo) const;
+                                                         int                      opponentElo,
+                                                         const EvalFn&            evalFn) const;
 
     // Returns true if candidateMove is a human-like mistake at targetElo
     // that opponentElo is unlikely to punish.
-    bool is_smart_mistake(Position& pos,
-                          Move      bestMove,
-                          Move      candidateMove,
-                          int       targetElo,
-                          int       opponentElo) const;
+    bool is_smart_mistake(Position&     pos,
+                          Move          bestMove,
+                          Move          candidateMove,
+                          int           targetElo,
+                          int           opponentElo,
+                          const EvalFn& evalFn) const;
 
     // Evaluate the likelihood that ourMove sets a trap the opponent will fall into.
-    float evaluate_trap_potential(Position& pos, Move ourMove, int opponentElo) const;
+    float evaluate_trap_potential(Position&     pos,
+                                  Move          ourMove,
+                                  int           opponentElo,
+                                  const EvalFn& evalFn) const;
 
     bool is_ready() const { return modelLoaded; }
 
@@ -88,7 +100,8 @@ class OpponentModel {
 
     // Evaluate position after the opponent plays oppResponse.move.
     float evaluate_after_opponent_response(Position&               pos,
-                                           const OpponentResponse& oppResponse) const;
+                                           const OpponentResponse& oppResponse,
+                                           const EvalFn&           evalFn) const;
 
     // Convert a Stockfish Move to a UCI string (e.g. "e2e4", "e7e8q").
     static std::string move_to_uci(Move m);
