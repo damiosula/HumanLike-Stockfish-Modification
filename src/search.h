@@ -217,13 +217,15 @@ struct Skill {
     // CNN-enhanced move selection: pick best move considering opponent exploitability.
     // pos is non-const so the opponent model can do/undo moves internally.
     // evalFn: Stockfish's full NNUE evaluator, provided by the Worker as a lambda.
-    Move pick_best_with_cnn(const RootMoves&               rootMoves,
-                            size_t                         multiPV,
-                            Position&                      pos,
-                            int                            opponentElo,
-                            int                            targetElo,
-                            OpponentModel*                 model,
-                            const OpponentModel::EvalFn&   evalFn);
+    Move pick_best_with_cnn(const RootMoves&                rootMoves,
+                            size_t                          multiPV,
+                            Position&                       pos,
+                            int                             opponentElo,
+                            int                             targetElo,
+                            OpponentModel*                  model,
+                            const OpponentModel::EvalFn&    evalFn,
+                            const OpponentModel::DoMoveFn&  doMoveFn,
+                            const OpponentModel::UndoMoveFn& undoMoveFn);
 
     // Returns true if we should make a human-like "mistake" this move
     bool should_make_mistake() const;

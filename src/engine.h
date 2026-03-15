@@ -95,6 +95,7 @@ class Engine {
 
     // opponent model related
     void load_opponent_model(const std::string& path);
+    void load_maia_models(const std::string& dir);
 
     // utility functions
 

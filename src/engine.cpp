@@ -149,9 +149,21 @@ Engine::Engine(std::optional<std::string> path) :
       }));
 
     // Opponent model options for smart handicapping
-    options.add("OpponentElo", Option(1500, 800, 2800));
+    options.add(  //
+      "OpponentElo", Option(1500, 800, 2800, [this](const Option&) {
+          // If a Maia model directory is set, reload the model for the new ELO.
+          const std::string dir = options["MaiaModelDir"];
+          if (!dir.empty())
+              load_maia_models(dir);
+          return std::nullopt;
+      }));
     options.add("PlayingElo", Option(1500, 800, 2800));
     options.add("UseOpponentModel", Option(false));
+    options.add(  //
+      "MaiaModelDir", Option("", [this](const Option& o) {
+          load_maia_models(o);
+          return std::nullopt;
+      }));
     options.add(  //
       "OpponentModelFile", Option("", [this](const Option& o) {
           load_opponent_model(o);
@@ -352,6 +364,27 @@ void Engine::load_opponent_model(const std::string& path) {
         else
             sync_cout << "info string WARNING: Failed to load opponent model from " << path
                       << sync_endl;
+    }
+
+    // Propagate the (new) model pointer to all worker threads
+    resize_threads();
+}
+
+void Engine::load_maia_models(const std::string& dir) {
+    wait_for_search_finished();
+
+    if (dir.empty()) {
+        opponentModel.reset();
+        sync_cout << "info string Maia opponent model disabled" << sync_endl;
+    } else {
+        if (!opponentModel)
+            opponentModel = std::make_unique<OpponentModel>();
+
+        int elo = int(options["OpponentElo"]);
+        if (opponentModel->load_model_for_elo(dir, elo))
+            sync_cout << "info string Maia model active for ELO " << elo << sync_endl;
+        else
+            sync_cout << "info string WARNING: Failed to load Maia model from " << dir << sync_endl;
     }
 
     // Propagate the (new) model pointer to all worker threads

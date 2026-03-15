@@ -475,10 +475,12 @@ void Search::Worker::iterative_deepening() {
         {
             if (opponentModel && opponentModel->is_ready()
                 && int(options["UseOpponentModel"]))
-                skill.pick_best_with_cnn(rootMoves, multiPV, rootPos,
-                                         int(options["OpponentElo"]),
-                                         int(options["PlayingElo"]), opponentModel,
-                                         [this](const Position& p) { return evaluate(p); });
+                skill.pick_best_with_cnn(
+                    rootMoves, multiPV, rootPos,
+                    int(options["OpponentElo"]), int(options["PlayingElo"]), opponentModel,
+                    [this](const Position& p) { return evaluate(p); },
+                    [this](Position& p, Move m, StateInfo& st) { do_move(p, m, st, nullptr); },
+                    [this](Position& p, Move m) { undo_move(p, m); });
             else
                 skill.pick_best(rootMoves, multiPV);
         }
@@ -552,11 +554,13 @@ void Search::Worker::iterative_deepening() {
         if (opponentModel && opponentModel->is_ready() && int(options["UseOpponentModel"]))
             pickedMove = skill.best
                            ? skill.best
-                           : skill.pick_best_with_cnn(rootMoves, multiPV, rootPos,
-                                                      int(options["OpponentElo"]),
-                                                      int(options["PlayingElo"]),
-                                                      opponentModel,
-                                                      [this](const Position& p) { return evaluate(p); });
+                           : skill.pick_best_with_cnn(
+                               rootMoves, multiPV, rootPos,
+                               int(options["OpponentElo"]), int(options["PlayingElo"]),
+                               opponentModel,
+                               [this](const Position& p) { return evaluate(p); },
+                               [this](Position& p, Move m, StateInfo& st) { do_move(p, m, st, nullptr); },
+                               [this](Position& p, Move m) { undo_move(p, m); });
         else
             pickedMove = skill.best ? skill.best : skill.pick_best(rootMoves, multiPV);
         std::swap(rootMoves[0], *std::find(rootMoves.begin(), rootMoves.end(), pickedMove));
@@ -1971,12 +1975,14 @@ bool Skill::should_make_mistake() const {
 // CNN-enhanced move selection. Uses the opponent model to pick moves that
 // maximise exploitability against the human opponent instead of random selection.
 Move Skill::pick_best_with_cnn(const RootMoves&             rootMoves,
-                                size_t                       multiPV,
-                                Position&                    pos,
-                                int                          opponentElo,
-                                int                          targetElo,
-                                OpponentModel*               model,
-                                const OpponentModel::EvalFn& evalFn) {
+                                size_t                            multiPV,
+                                Position&                         pos,
+                                int                               opponentElo,
+                                int                               targetElo,
+                                OpponentModel*                    model,
+                                const OpponentModel::EvalFn&      evalFn,
+                                const OpponentModel::DoMoveFn&    doMoveFn,
+                                const OpponentModel::UndoMoveFn&  undoMoveFn) {
     if (!model || !model->is_ready() || rootMoves.empty())
         return pick_best(rootMoves, multiPV);
 
@@ -1989,7 +1995,8 @@ Move Skill::pick_best_with_cnn(const RootMoves&             rootMoves,
     Move bestMove = candidates[0];  // Objectively best move
 
     // Rank all candidates by how exploitable they are against the opponent
-    auto rankings = model->rank_candidate_moves(pos, candidates, opponentElo, evalFn);
+    auto rankings = model->rank_candidate_moves(pos, candidates, opponentElo,
+                                                evalFn, doMoveFn, undoMoveFn);
 
     if (rankings.empty())
     {
@@ -1997,29 +2004,78 @@ Move Skill::pick_best_with_cnn(const RootMoves&             rootMoves,
         return best;
     }
 
-    // 1. If the top-ranked move sets a strong trap, play it immediately
-    if (rankings[0].trapPotential > 0.6f)
+    // ── Combined scoring ────────────────────────────────────────────────────────
+    // All MultiPV candidates are objectively strong moves. We pick between them
+    // using a combined score that balances eval quality vs opponent exploitability:
+    //
+    //   combined = exploitability  -  eval_penalty
+    //
+    // eval_penalty = max(0, (bestEval - candidateEval) / 200)
+    //   → 200cp deficit costs 1.0 penalty (same scale as exploitability 0–1)
+    //   → 50cp deficit costs 0.25 penalty (easily overcome by +0.3 exploitability)
+    //   → If all candidates are within 50cp, exploitability almost entirely decides
+    //
+    // This means the model influences EVERY move selection, always picks a strong
+    // move, but prefers the one that creates the most problems for this opponent.
+
+    Value bestEval = rootMoves[0].score;  // best candidate's eval (descending order)
+
+    float bestCombined = -999.0f;
+    Move  chosenMove   = bestMove;
+
+    sync_cout << "info string [pick_best_with_cnn] Combined scores vs Maia-" << opponentElo << ":" << sync_endl;
+
+    for (const auto& exploit : rankings)
     {
-        best = rankings[0].move;
-        return best;
+        // Find the Stockfish eval for this candidate
+        Value moveEval = bestEval;
+        for (size_t i = 0; i < std::min(rootMoves.size(), multiPV); ++i)
+        {
+            if (rootMoves[i].pv[0] == exploit.move)
+            {
+                moveEval = rootMoves[i].score;
+                break;
+            }
+        }
+
+        // Cap the eval difference at 600cp to avoid overflow with mate scores
+        float evalDiff    = std::min(600.0f, std::max(0.0f, float(bestEval - moveEval)));
+        float evalPenalty = evalDiff / 200.0f;
+        float combined    = exploit.expectedValue - evalPenalty;
+
+        sync_cout << "info string   " << UCIEngine::move(exploit.move, pos.is_chess960())
+                  << " EV=" << exploit.expectedValue
+                  << " evalPenalty=" << evalPenalty
+                  << " combined=" << combined << sync_endl;
+
+        if (combined > bestCombined)
+        {
+            bestCombined = combined;
+            chosenMove   = exploit.move;
+        }
     }
 
-    // 2. Optionally make a human-like "mistake": pick a suboptimal move that
-    //    the opponent is likely to mishandle rather than punish
+    // ── Optional smart mistake (human-like weakening) ───────────────────────
+    // When skill < 20, occasionally deviate from the best combined-score move
+    // with a suboptimal move the opponent is unlikely to punish.
     if (should_make_mistake() && rankings.size() > 1)
     {
         for (size_t i = 1; i < std::min(rankings.size(), size_t(4)); ++i)
         {
-            if (model->is_smart_mistake(pos, bestMove, rankings[i].move, targetElo, opponentElo, evalFn))
+            if (model->is_smart_mistake(pos, bestMove, rankings[i].move, targetElo,
+                                        opponentElo, evalFn, doMoveFn, undoMoveFn))
             {
+                sync_cout << "info string => SMART MISTAKE: "
+                          << UCIEngine::move(rankings[i].move, pos.is_chess960()) << sync_endl;
                 best = rankings[i].move;
                 return best;
             }
         }
     }
 
-    // 3. Default: choose the move with the highest exploitability score
-    best = rankings[0].move;
+    sync_cout << "info string => EXPLOIT: " << UCIEngine::move(chosenMove, pos.is_chess960())
+              << " (combined=" << bestCombined << ")" << sync_endl;
+    best = chosenMove;
     return best;
 }
 
