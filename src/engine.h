@@ -94,8 +94,7 @@ class Engine {
     void save_network(const std::pair<std::optional<std::string>, std::string> files[2]);
 
     // opponent model related
-    void load_opponent_model(const std::string& path);
-    void load_maia_models(const std::string& dir);
+    void load_onnx_file(const std::string& path);
 
     // utility functions
 
@@ -132,7 +131,6 @@ class Engine {
     std::function<void(std::string_view)> onVerifyNetworks;
     std::map<NumaIndex, SharedHistories>  sharedHists;
 
-    // CNN-based opponent model (loaded on demand via UCI option)
     std::unique_ptr<OpponentModel> opponentModel;
 };
 

@@ -148,32 +148,13 @@ Engine::Engine(std::optional<std::string> path) :
           return std::nullopt;
       }));
 
+    options.add("OpponentElo", Option(-1, 0, 2800));
     options.add(  //
-      "OpponentElo", Option(1500, 800, 2800, [this](const Option&) {
-          const std::string dir = options["MaiaModelDir"];
-          if (!dir.empty())
-              load_maia_models(dir);
+      "ONNXFilePath", Option("", [this](const Option& o) {
+          load_onnx_file(o);
           return std::nullopt;
       }));
-    options.add("PlayingElo", Option(1500, 800, 2800));
-    options.add("UseOpponentModel", Option(false));
-    options.add(  //
-      "MaiaModelDir", Option("", [this](const Option& o) {
-          load_maia_models(o);
-          return std::nullopt;
-      }));
-    options.add(  //
-      "OpponentModelFile", Option("", [this](const Option& o) {
-          load_opponent_model(o);
-          return std::nullopt;
-      }));
-    options.add("CNNWeight", Option(70, 0, 100));
-    options.add("EnableSmartMistakes", Option(true));
-    options.add("EnableTrapSetting", Option(true));
-    options.add("MistakeFrequency", Option(15, 0, 100));
 
-    // Exploitability scoring weights for pick_best_with_cnn.
-    // Combined = WeightTrap*trapPotential + WeightBlunder*blunderRate + WeightDifficulty*difficulty
     auto update_weights = [this](const Option&) -> std::optional<std::string> {
         if (opponentModel)
             opponentModel->set_weights(
@@ -182,9 +163,9 @@ Engine::Engine(std::optional<std::string> path) :
                 float(int(options["WeightDifficulty"])) / 100.0f);
         return std::nullopt;
     };
-    options.add("WeightTrap",       Option(40, 0, 100, update_weights));
-    options.add("WeightBlunder",    Option(40, 0, 100, update_weights));
-    options.add("WeightDifficulty", Option(20, 0, 100, update_weights));
+    options.add("WeightTrap",       Option(33, 0, 100, update_weights));
+    options.add("WeightBlunder",    Option(34, 0, 100, update_weights));
+    options.add("WeightDifficulty", Option(33, 0, 100, update_weights));
 
     load_networks();
     resize_threads();
@@ -357,53 +338,24 @@ void Engine::load_small_network(const std::string& file) {
     threads.ensure_network_replicated();
 }
 
-void Engine::load_opponent_model(const std::string& path) {
+void Engine::load_onnx_file(const std::string& path) {
     wait_for_search_finished();
 
-    if (path.empty())
-    {
+    if (path.empty()) {
         opponentModel.reset();
-        sync_cout << "info string Opponent model disabled" << sync_endl;
-    }
-    else
-    {
-        if (!opponentModel)
-            opponentModel = std::make_unique<OpponentModel>();
-
-        if (opponentModel->load_model(path))
-            sync_cout << "info string Opponent model loaded successfully from " << path
-                      << sync_endl;
-        else
-            sync_cout << "info string WARNING: Failed to load opponent model from " << path
-                      << sync_endl;
-    }
-
-    // Propagate the (new) model pointer to all worker threads
-    resize_threads();
-}
-
-void Engine::load_maia_models(const std::string& dir) {
-    wait_for_search_finished();
-
-    if (dir.empty()) {
-        opponentModel.reset();
-        sync_cout << "info string Maia opponent model disabled" << sync_endl;
+        sync_cout << "Opponent model disabled" << sync_endl;
     } else {
         if (!opponentModel)
             opponentModel = std::make_unique<OpponentModel>();
 
-        int elo = int(options["OpponentElo"]);
-        if (opponentModel->load_model_for_elo(dir, elo)) {
+        if (opponentModel->load_model(path)) {
             opponentModel->set_weights(
                 float(int(options["WeightTrap"]))       / 100.0f,
                 float(int(options["WeightBlunder"]))    / 100.0f,
                 float(int(options["WeightDifficulty"])) / 100.0f);
-            sync_cout << "info string Maia model active for ELO " << elo << sync_endl;
         } else
-            sync_cout << "info string WARNING: Failed to load Maia model from " << dir << sync_endl;
+            sync_cout << "Failed to load model from " << path << sync_endl;
     }
-
-    // Propagate the (new) model pointer to all worker threads
     resize_threads();
 }
 

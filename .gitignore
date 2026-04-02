@@ -14,6 +14,8 @@ src/-lstdc++.res
 .vscode
 
 # Opponent model files
+src/opponent_model.onnx
+src/opponent_model_vocab.txt
 opponent_model.onnx
 opponent_model.onnx.data
 opponent_model_vocab.txt
