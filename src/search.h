@@ -221,7 +221,6 @@ struct Skill {
                             size_t                          multiPV,
                             Position&                       pos,
                             int                             opponentElo,
-                            int                             targetElo,
                             OpponentModel*                  model,
                             const OpponentModel::EvalFn&    evalFn,
                             const OpponentModel::DoMoveFn&  doMoveFn,

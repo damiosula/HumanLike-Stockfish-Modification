@@ -305,12 +305,7 @@ void Search::Worker::iterative_deepening() {
 
     // When playing with strength handicap enable MultiPV search that we will
     // use behind-the-scenes to retrieve a set of possible moves.
-    if (skill.enabled())
-        multiPV = std::max(multiPV, size_t(4));
-
-    // When the opponent model is active, always search at least 4 lines so
-    // pick_best_with_cnn has candidates to choose from, even at Skill Level 20.
-    if (opponentModel && opponentModel->is_ready() && int(options["OpponentElo"]) > 0)
+    if (skill.enabled() || (opponentModel && opponentModel->is_ready() && int(options["OpponentElo"]) > 0))
         multiPV = std::max(multiPV, size_t(4));
 
     multiPV = std::min(multiPV, rootMoves.size());
@@ -477,30 +472,13 @@ void Search::Worker::iterative_deepening() {
 
         // If the skill level is enabled and time is up, pick a sub-optimal best move
         if (skill.enabled() && skill.time_to_pick(rootDepth))
-        {
-            if (opponentModel && opponentModel->is_ready()
-                && int(options["OpponentElo"]) > 0)
-                skill.pick_best_with_cnn(
-                    rootMoves, multiPV, rootPos,
-                    int(options["OpponentElo"]), int(options["PlayingElo"]), opponentModel,
-                    [this](const Position& p) { return evaluate(p); },
-                    [this](Position& p, Move m, StateInfo& st) { do_move(p, m, st, nullptr); },
-                    [this](Position& p, Move m) { undo_move(p, m); });
-            else
-                skill.pick_best(rootMoves, multiPV);
-        }
-
-        // At Skill Level 20 (skill disabled), still run CNN selection if opponent
-        // model is active — allows exploitation without a strength handicap.
-        if (!skill.enabled() && opponentModel && opponentModel->is_ready()
-            && int(options["OpponentElo"]) > 0 && skill.time_to_pick(rootDepth))
             skill.pick_best_with_cnn(
                 rootMoves, multiPV, rootPos,
-                int(options["OpponentElo"]), int(options["PlayingElo"]), opponentModel,
+                int(options["OpponentElo"]), opponentModel,
                 [this](const Position& p) { return evaluate(p); },
                 [this](Position& p, Move m, StateInfo& st) { do_move(p, m, st, nullptr); },
                 [this](Position& p, Move m) { undo_move(p, m); });
-
+        
         // Use part of the gained time from a previous stable move for the current move
         for (auto&& th : threads)
         {
@@ -563,32 +541,13 @@ void Search::Worker::iterative_deepening() {
 
     mainThread->previousTimeReduction = timeReduction;
 
-    // If the skill level is enabled, swap the best PV line with the sub-optimal one
-    if (skill.enabled())
+    // Pick final move: always try CNN exploitation, fall back to standard pick_best
     {
-        Move pickedMove;
-        if (opponentModel && opponentModel->is_ready() && int(options["OpponentElo"]) > 0)
-            pickedMove = skill.best
-                           ? skill.best
-                           : skill.pick_best_with_cnn(
-                               rootMoves, multiPV, rootPos,
-                               int(options["OpponentElo"]), int(options["PlayingElo"]),
-                               opponentModel,
-                               [this](const Position& p) { return evaluate(p); },
-                               [this](Position& p, Move m, StateInfo& st) { do_move(p, m, st, nullptr); },
-                               [this](Position& p, Move m) { undo_move(p, m); });
-        else
-            pickedMove = skill.best ? skill.best : skill.pick_best(rootMoves, multiPV);
-        std::swap(rootMoves[0], *std::find(rootMoves.begin(), rootMoves.end(), pickedMove));
-    }
-    else if (opponentModel && opponentModel->is_ready() && int(options["OpponentElo"]) > 0)
-    {
-        // Skill Level 20: no handicap, but still apply CNN exploitation.
         Move pickedMove = skill.best
                             ? skill.best
                             : skill.pick_best_with_cnn(
                                 rootMoves, multiPV, rootPos,
-                                int(options["OpponentElo"]), int(options["PlayingElo"]),
+                                int(options["OpponentElo"]),
                                 opponentModel,
                                 [this](const Position& p) { return evaluate(p); },
                                 [this](Position& p, Move m, StateInfo& st) { do_move(p, m, st, nullptr); },
@@ -1999,7 +1958,6 @@ Move Skill::pick_best_with_cnn(const RootMoves&             rootMoves,
                                 size_t                            multiPV,
                                 Position&                         pos,
                                 int                               opponentElo,
-                                int                               targetElo,
                                 OpponentModel*                    model,
                                 const OpponentModel::EvalFn&      evalFn,
                                 const OpponentModel::DoMoveFn&    doMoveFn,
