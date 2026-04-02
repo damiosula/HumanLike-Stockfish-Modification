@@ -49,15 +49,15 @@ class OpponentModel {
 
     bool is_ready() const { return modelLoaded; }
 
-    void set_weights(float trapWeight, float blunderWeight, float avgOppRespRatingWeight) {
-        trap_weight = trapWeight;
-        blunder_weight = blunderWeight;
+    void set_weights(float trapPotentialWeight, float blunderRateWeight, float avgOppRespRatingWeight) {
+        trap_potential_weight = trapPotentialWeight;
+        blunder_rate_weight = blunderRateWeight;
         avg_opp_resp_rating_weight = avgOppRespRatingWeight;
     }
 
    private:
-    float trap_weight = 0.4f;
-    float blunder_weight = 0.4f;
+    float trap_potential_weight = 0.4f;
+    float blunder_rate_weight = 0.4f;
     float avg_opp_resp_rating_weight = 0.2f;
     bool modelLoaded = false;
 

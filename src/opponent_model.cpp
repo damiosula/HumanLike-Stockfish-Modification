@@ -329,9 +329,9 @@ std::vector<MoveExploitability>OpponentModel::rank_candidate_moves(Position& pos
         float meanOutcome = (totalProb > 0 ? expectedOutcome / totalProb : 0.0f);
         exploit.blunderRate = blunderProb;
         exploit.avgOpponentResponseRating = std::clamp(0.5f + 0.5f * meanOutcome, 0.0f, 1.0f);
-        exploit.expectedValue = w_trap_ * exploit.trapPotential
-                              + w_blunder_ * exploit.blunderRate
-                              + w_difficulty_ * exploit.avgOpponentResponseRating;
+        exploit.expectedValue = trap_potential_weight * exploit.trapPotential
+                              + blunder_rate_weight * exploit.blunderRate
+                              + avg_opp_resp_rating_weight * exploit.avgOpponentResponseRating;
 
         sync_cout << "blunder rate = " << std::setprecision(3) << exploit.blunderRate
                   << " difficulty = " << exploit.avgOpponentResponseRating
@@ -398,4 +398,4 @@ float OpponentModel::evaluate_after_opponent_response(Position& pos, const Oppon
     return std::tanh(eval);
 }
 
-}
+} // namespace Stockfish

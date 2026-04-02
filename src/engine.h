@@ -93,7 +93,6 @@ class Engine {
     void load_small_network(const std::string& file);
     void save_network(const std::pair<std::optional<std::string>, std::string> files[2]);
 
-    // opponent model related
     void load_onnx_file(const std::string& path);
 
     // utility functions

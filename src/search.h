@@ -227,9 +227,6 @@ struct Skill {
                             const OpponentModel::DoMoveFn&  doMoveFn,
                             const OpponentModel::UndoMoveFn& undoMoveFn);
 
-    // Returns true if we should make a human-like "mistake" this move
-    bool should_make_mistake() const;
-
     double level;
     Move   best = Move::none();
 };

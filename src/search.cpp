@@ -308,6 +308,11 @@ void Search::Worker::iterative_deepening() {
     if (skill.enabled())
         multiPV = std::max(multiPV, size_t(4));
 
+    // When the opponent model is active, always search at least 4 lines so
+    // pick_best_with_cnn has candidates to choose from, even at Skill Level 20.
+    if (opponentModel && opponentModel->is_ready() && int(options["OpponentElo"]) > 0)
+        multiPV = std::max(multiPV, size_t(4));
+
     multiPV = std::min(multiPV, rootMoves.size());
 
     int searchAgainCounter = 0;
@@ -474,7 +479,7 @@ void Search::Worker::iterative_deepening() {
         if (skill.enabled() && skill.time_to_pick(rootDepth))
         {
             if (opponentModel && opponentModel->is_ready()
-                && int(options["UseOpponentModel"]))
+                && int(options["OpponentElo"]) > 0)
                 skill.pick_best_with_cnn(
                     rootMoves, multiPV, rootPos,
                     int(options["OpponentElo"]), int(options["PlayingElo"]), opponentModel,
@@ -484,6 +489,17 @@ void Search::Worker::iterative_deepening() {
             else
                 skill.pick_best(rootMoves, multiPV);
         }
+
+        // At Skill Level 20 (skill disabled), still run CNN selection if opponent
+        // model is active — allows exploitation without a strength handicap.
+        if (!skill.enabled() && opponentModel && opponentModel->is_ready()
+            && int(options["OpponentElo"]) > 0 && skill.time_to_pick(rootDepth))
+            skill.pick_best_with_cnn(
+                rootMoves, multiPV, rootPos,
+                int(options["OpponentElo"]), int(options["PlayingElo"]), opponentModel,
+                [this](const Position& p) { return evaluate(p); },
+                [this](Position& p, Move m, StateInfo& st) { do_move(p, m, st, nullptr); },
+                [this](Position& p, Move m) { undo_move(p, m); });
 
         // Use part of the gained time from a previous stable move for the current move
         for (auto&& th : threads)
@@ -551,7 +567,7 @@ void Search::Worker::iterative_deepening() {
     if (skill.enabled())
     {
         Move pickedMove;
-        if (opponentModel && opponentModel->is_ready() && int(options["UseOpponentModel"]))
+        if (opponentModel && opponentModel->is_ready() && int(options["OpponentElo"]) > 0)
             pickedMove = skill.best
                            ? skill.best
                            : skill.pick_best_with_cnn(
@@ -563,6 +579,20 @@ void Search::Worker::iterative_deepening() {
                                [this](Position& p, Move m) { undo_move(p, m); });
         else
             pickedMove = skill.best ? skill.best : skill.pick_best(rootMoves, multiPV);
+        std::swap(rootMoves[0], *std::find(rootMoves.begin(), rootMoves.end(), pickedMove));
+    }
+    else if (opponentModel && opponentModel->is_ready() && int(options["OpponentElo"]) > 0)
+    {
+        // Skill Level 20: no handicap, but still apply CNN exploitation.
+        Move pickedMove = skill.best
+                            ? skill.best
+                            : skill.pick_best_with_cnn(
+                                rootMoves, multiPV, rootPos,
+                                int(options["OpponentElo"]), int(options["PlayingElo"]),
+                                opponentModel,
+                                [this](const Position& p) { return evaluate(p); },
+                                [this](Position& p, Move m, StateInfo& st) { do_move(p, m, st, nullptr); },
+                                [this](Position& p, Move m) { undo_move(p, m); });
         std::swap(rootMoves[0], *std::find(rootMoves.begin(), rootMoves.end(), pickedMove));
     }
 }
@@ -1962,15 +1992,6 @@ Move Skill::pick_best(const RootMoves& rootMoves, size_t multiPV) {
     return best;
 }
 
-// Returns true if the handicap level warrants making a human-like mistake this move.
-// Higher skill levels (stronger play) make fewer mistakes.
-bool Skill::should_make_mistake() const {
-    static PRNG rng(now() + 17);  // Separate PRNG from pick_best
-
-    // Mistake chance: 0% at level 20, ~40% at level 0
-    int mistakeChance = static_cast<int>((20.0 - level) * 2.0);
-    return (rng.rand<unsigned>() % 100) < static_cast<unsigned>(mistakeChance);
-}
 
 // CNN-enhanced move selection. Uses the opponent model to pick moves that
 // maximise exploitability against the human opponent instead of random selection.
@@ -2052,24 +2073,6 @@ Move Skill::pick_best_with_cnn(const RootMoves&             rootMoves,
         {
             bestCombined = combined;
             chosenMove   = exploit.move;
-        }
-    }
-
-    // ── Optional smart mistake (human-like weakening) ───────────────────────
-    // When skill < 20, occasionally deviate from the best combined-score move
-    // with a suboptimal move the opponent is unlikely to punish.
-    if (should_make_mistake() && rankings.size() > 1)
-    {
-        for (size_t i = 1; i < std::min(rankings.size(), size_t(4)); ++i)
-        {
-            if (model->is_smart_mistake(pos, bestMove, rankings[i].move, targetElo,
-                                        opponentElo, evalFn, doMoveFn, undoMoveFn))
-            {
-                sync_cout << "info string => SMART MISTAKE: "
-                          << UCIEngine::move(rankings[i].move, pos.is_chess960()) << sync_endl;
-                best = rankings[i].move;
-                return best;
-            }
         }
     }
 
