@@ -484,8 +484,9 @@ OpponentModel::rank_candidate_moves(Position& pos, const std::vector<Move>& cand
         float meanOutcome     = (totalProb > 0 ? expectedOutcome / totalProb : 0.0f);
         exploit.blunderRate   = blunderProb;
         exploit.difficulty    = std::clamp(0.5f + 0.5f * meanOutcome, 0.0f, 1.0f);
-        exploit.expectedValue = 0.4f * exploit.trapPotential + 0.4f * exploit.blunderRate
-                              + 0.2f * exploit.difficulty;
+        exploit.expectedValue = w_trap_       * exploit.trapPotential
+                              + w_blunder_    * exploit.blunderRate
+                              + w_difficulty_ * exploit.difficulty;
 
         sync_cout << "info string   => blunder=" << std::setprecision(3) << exploit.blunderRate
                   << " difficulty=" << exploit.difficulty

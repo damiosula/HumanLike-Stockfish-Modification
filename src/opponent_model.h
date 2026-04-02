@@ -92,7 +92,18 @@ class OpponentModel {
 
     bool is_ready() const { return modelLoaded; }
 
+    // Exploitability scoring weights (sum need not equal 1).
+    // Combined score = w_trap*trapPotential + w_blunder*blunderRate + w_difficulty*difficulty
+    void set_weights(float w_trap, float w_blunder, float w_difficulty) {
+        w_trap_       = w_trap;
+        w_blunder_    = w_blunder;
+        w_difficulty_ = w_difficulty;
+    }
+
    private:
+    float w_trap_       = 0.4f;
+    float w_blunder_    = 0.4f;
+    float w_difficulty_ = 0.2f;
     bool modelLoaded = false;
 
     // true  → Maia format: 112-plane board, no ELO tensor, output "policy"

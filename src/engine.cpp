@@ -148,10 +148,8 @@ Engine::Engine(std::optional<std::string> path) :
           return std::nullopt;
       }));
 
-    // Opponent model options for smart handicapping
     options.add(  //
       "OpponentElo", Option(1500, 800, 2800, [this](const Option&) {
-          // If a Maia model directory is set, reload the model for the new ELO.
           const std::string dir = options["MaiaModelDir"];
           if (!dir.empty())
               load_maia_models(dir);
@@ -173,6 +171,20 @@ Engine::Engine(std::optional<std::string> path) :
     options.add("EnableSmartMistakes", Option(true));
     options.add("EnableTrapSetting", Option(true));
     options.add("MistakeFrequency", Option(15, 0, 100));
+
+    // Exploitability scoring weights for pick_best_with_cnn.
+    // Combined = WeightTrap*trapPotential + WeightBlunder*blunderRate + WeightDifficulty*difficulty
+    auto update_weights = [this](const Option&) -> std::optional<std::string> {
+        if (opponentModel)
+            opponentModel->set_weights(
+                float(int(options["WeightTrap"]))       / 100.0f,
+                float(int(options["WeightBlunder"]))    / 100.0f,
+                float(int(options["WeightDifficulty"])) / 100.0f);
+        return std::nullopt;
+    };
+    options.add("WeightTrap",       Option(40, 0, 100, update_weights));
+    options.add("WeightBlunder",    Option(40, 0, 100, update_weights));
+    options.add("WeightDifficulty", Option(20, 0, 100, update_weights));
 
     load_networks();
     resize_threads();
@@ -381,9 +393,13 @@ void Engine::load_maia_models(const std::string& dir) {
             opponentModel = std::make_unique<OpponentModel>();
 
         int elo = int(options["OpponentElo"]);
-        if (opponentModel->load_model_for_elo(dir, elo))
+        if (opponentModel->load_model_for_elo(dir, elo)) {
+            opponentModel->set_weights(
+                float(int(options["WeightTrap"]))       / 100.0f,
+                float(int(options["WeightBlunder"]))    / 100.0f,
+                float(int(options["WeightDifficulty"])) / 100.0f);
             sync_cout << "info string Maia model active for ELO " << elo << sync_endl;
-        else
+        } else
             sync_cout << "info string WARNING: Failed to load Maia model from " << dir << sync_endl;
     }
 
