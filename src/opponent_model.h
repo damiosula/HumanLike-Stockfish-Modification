@@ -71,7 +71,7 @@ class OpponentModel {
 
     void output_to_moves(const float* logits, const Position& pos, std::vector<OpponentResponse>& responses) const;
 
-    float evaluate_after_opponent_response(Position& pos, const OpponentResponse& oppResponse, const EvalFn& evalFn, const DoMoveFn& doMoveFn, const UndoMoveFn& undoMoveFn) const;
+    float evaluate_after_opponent_response(Position& pos, const OpponentResponse& oppResponse, const EvalFn& evalFn, const DoMoveFn& doMoveFn, const UndoMoveFn& undoMoveFn, Value evalAfterCandidate) const;
 
     static std::string move_to_uci(Move m);
 };

@@ -1996,14 +1996,14 @@ Move Skill::pick_best_with_cnn(const RootMoves& rootMoves,
             }
         }
 
-        float evalDiff = std::min(600.0f, std::max(0.0f, float(bestEval - moveEval)));
-        float evalPenalty = evalDiff / 200.0f;
+        float evalDiff = std::max(0.0f, float(bestEval - moveEval));
+        float evalPenalty = std::tanh(evalDiff / 300.0f);
         float combined = exploit.expectedValue - evalPenalty;
 
         sync_cout << UCIEngine::move(exploit.move, pos.is_chess960())
-                  << " EV = " << exploit.expectedValue
-                  << " eval penalty=" << evalPenalty
-                  << " combined=" << combined << sync_endl;
+                  << " expected exploit value = " << exploit.expectedValue
+                  << " eval penalty from top move =" << evalPenalty
+                  << " combined = " << combined << sync_endl;
 
         if (combined > bestCombined)
         {

@@ -140,20 +140,20 @@ struct SharedState {
                 TranspositionTable&                                       transpositionTable,
                 std::map<NumaIndex, SharedHistories>&                     sharedHists,
                 const LazyNumaReplicatedSystemWide<Eval::NNUE::Networks>& nets,
-                OpponentModel*                                            oppModel = nullptr) :
+                OpponentModel* opponentModel = nullptr) :
         options(optionsMap),
         threads(threadPool),
         tt(transpositionTable),
         sharedHistories(sharedHists),
         networks(nets),
-        opponentModel(oppModel) {}
+        opponentModel(opponentModel) {}
 
     const OptionsMap&                                         options;
     ThreadPool&                                               threads;
     TranspositionTable&                                       tt;
     std::map<NumaIndex, SharedHistories>&                     sharedHistories;
     const LazyNumaReplicatedSystemWide<Eval::NNUE::Networks>& networks;
-    OpponentModel*                                            opponentModel = nullptr;
+    OpponentModel* opponentModel = nullptr;
 };
 
 class Worker;
@@ -214,16 +214,13 @@ struct Skill {
     bool time_to_pick(Depth depth) const { return depth == 1 + int(level); }
     Move pick_best(const RootMoves&, size_t multiPV);
 
-    // CNN-enhanced move selection: pick best move considering opponent exploitability.
-    // pos is non-const so the opponent model can do/undo moves internally.
-    // evalFn: Stockfish's full NNUE evaluator, provided by the Worker as a lambda.
-    Move pick_best_with_cnn(const RootMoves&                rootMoves,
-                            size_t                          multiPV,
-                            Position&                       pos,
-                            int                             opponentElo,
-                            OpponentModel*                  model,
-                            const OpponentModel::EvalFn&    evalFn,
-                            const OpponentModel::DoMoveFn&  doMoveFn,
+    Move pick_best_with_cnn(const RootMoves& rootMoves,
+                            size_t multiPV,
+                            Position& pos,
+                            int opponentElo,
+                            OpponentModel* model,
+                            const OpponentModel::EvalFn& evalFn,
+                            const OpponentModel::DoMoveFn& doMoveFn,
                             const OpponentModel::UndoMoveFn& undoMoveFn);
 
     double level;
@@ -313,7 +310,6 @@ class Worker {
     TTMoveHistory    ttMoveHistory;
     SharedHistories& sharedHistory;
 
-    // Pointer to CNN opponent model (non-owning; Engine owns the model)
     OpponentModel* opponentModel = nullptr;
 
    private:

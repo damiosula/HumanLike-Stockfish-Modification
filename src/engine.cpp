@@ -148,7 +148,7 @@ Engine::Engine(std::optional<std::string> path) :
           return std::nullopt;
       }));
 
-    options.add("OpponentElo", Option(-1, 0, 2800));
+    options.add("OpponentElo", Option(0, 0, 2800));
     options.add(  //
       "ONNXFilePath", Option("", [this](const Option& o) {
           load_onnx_file(o);
@@ -158,14 +158,14 @@ Engine::Engine(std::optional<std::string> path) :
     auto update_weights = [this](const Option&) -> std::optional<std::string> {
         if (opponentModel)
             opponentModel->set_weights(
-                float(int(options["WeightTrap"]))       / 100.0f,
-                float(int(options["WeightBlunder"]))    / 100.0f,
-                float(int(options["WeightDifficulty"])) / 100.0f);
+                float(int(options["TrapPotentialWeight"])) / 100.0f,
+                float(int(options["BlunderRateWeight"])) / 100.0f,
+                float(int(options["AvgOppRespRatingWeight"])) / 100.0f);
         return std::nullopt;
     };
-    options.add("WeightTrap",       Option(33, 0, 100, update_weights));
-    options.add("WeightBlunder",    Option(34, 0, 100, update_weights));
-    options.add("WeightDifficulty", Option(33, 0, 100, update_weights));
+    options.add("TrapPotentialWeight",       Option(33, 0, 100, update_weights));
+    options.add("BlunderRateWeight",    Option(34, 0, 100, update_weights));
+    options.add("AvgOppRespRatingWeight", Option(33, 0, 100, update_weights));
 
     load_networks();
     resize_threads();
@@ -349,9 +349,9 @@ void Engine::load_onnx_file(const std::string& path) {
 
         if (opponentModel->load_model(path)) {
             opponentModel->set_weights(
-                float(int(options["WeightTrap"]))       / 100.0f,
-                float(int(options["WeightBlunder"]))    / 100.0f,
-                float(int(options["WeightDifficulty"])) / 100.0f);
+                float(int(options["TrapPotentialWeight"])) / 100.0f,
+                float(int(options["BlunderRateWeight"])) / 100.0f,
+                float(int(options["AvgOppRespRatingWeight"])) / 100.0f);
         } else
             sync_cout << "Failed to load model from " << path << sync_endl;
     }

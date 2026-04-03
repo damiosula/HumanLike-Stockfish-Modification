@@ -293,17 +293,19 @@ std::vector<MoveExploitability>OpponentModel::rank_candidate_moves(Position& pos
         MoveExploitability exploit;
         exploit.move = move;
 
-        float baseOutcome = std::tanh(static_cast<float>(evalFn(pos)) / 300.0f);
-
         StateInfo st;
         doMoveFn(pos, move, st);
+
+        Value evalAfterCandidate = evalFn(pos);
 
         exploit.trapPotential = evaluate_trap_potential(pos, Move::none(), opponentElo,
                                                         evalFn, doMoveFn, undoMoveFn);
 
         auto responses = predict_responses(pos, opponentElo, 5);
 
-        sync_cout << "Candidate move: " << move_to_uci(move) << " base eval = " << std::fixed << std::setprecision(3) << baseOutcome << "trap potential = " << exploit.trapPotential
+        sync_cout << "Candidate move: " << move_to_uci(move)
+                  << " baseline cp (opp pov) = " << evalAfterCandidate
+                  << " trap potential = " << exploit.trapPotential
                   << "\nOpponent's top responses:" << sync_endl;
 
         float expectedOutcome = 0.0f;
@@ -312,15 +314,16 @@ std::vector<MoveExploitability>OpponentModel::rank_candidate_moves(Position& pos
 
         for (const auto& resp : responses) {
             float outcome = evaluate_after_opponent_response(pos, resp, evalFn,
-                                                             doMoveFn, undoMoveFn);
+                                                             doMoveFn, undoMoveFn,
+                                                             evalAfterCandidate);
             sync_cout << move_to_uci(resp.move)
                       << " prob of move = " << std::setprecision(3) << resp.probability
                       << " eval outcome = " << outcome
-                      << (outcome > baseOutcome + 0.1f ? " (blunder)" : "") << sync_endl;
+                      << (outcome > 0.1f ? " (blunder)" : "") << sync_endl;
             expectedOutcome += resp.probability * outcome;
             totalProb += resp.probability;
 
-            if (outcome > baseOutcome + 0.1f)
+            if (outcome > 0.1f)
                 blunderProb += resp.probability;
         }
 
@@ -358,6 +361,8 @@ float OpponentModel::evaluate_trap_potential(Position& pos, Move stockfishMove, 
     if (playedStockfishMove)
         doMoveFn(pos, stockfishMove, stSFMove);
 
+    Value evalFromOppPerspective = evalFn(pos);
+
     auto responses = predict_responses(pos, opponentElo, 10);
 
     float trapScore = 0.0f;
@@ -374,7 +379,7 @@ float OpponentModel::evaluate_trap_potential(Position& pos, Move stockfishMove, 
         Value eval = evalFn(pos);
         undoMoveFn(pos, resp.move);
 
-        if (eval > 100) {
+        if (eval + evalFromOppPerspective > 100) {
             ++badResponses;
             trapScore += resp.probability;
         }
@@ -390,12 +395,13 @@ float OpponentModel::evaluate_trap_potential(Position& pos, Move stockfishMove, 
 }
 
 float OpponentModel::evaluate_after_opponent_response(Position& pos, const OpponentResponse& oppResponse, const EvalFn& evalFn,
-                                                       const DoMoveFn& doMoveFn,const UndoMoveFn& undoMoveFn) const {
+                                                       const DoMoveFn& doMoveFn, const UndoMoveFn& undoMoveFn,
+                                                       Value evalAfterCandidate) const {
     StateInfo st;
     doMoveFn(pos, oppResponse.move, st);
-    float eval = static_cast<float>(evalFn(pos)) / 300.0f;
+    float delta = (static_cast<float>(evalFn(pos)) + static_cast<float>(evalAfterCandidate)) / 300.0f;
     undoMoveFn(pos, oppResponse.move);
-    return std::tanh(eval);
+    return std::tanh(delta);
 }
 
 } // namespace Stockfish
