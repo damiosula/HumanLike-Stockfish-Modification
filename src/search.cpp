@@ -1951,19 +1951,14 @@ Move Skill::pick_best(const RootMoves& rootMoves, size_t multiPV) {
 }
 
 
-Move Skill::pick_best_with_cnn(const RootMoves& rootMoves,
-                                size_t multiPV,
-                                Position& pos,
-                                int opponentElo,
-                                OpponentModel* model,
-                                const OpponentModel::EvalFn& evalFn,
-                                const OpponentModel::DoMoveFn& doMoveFn,
-                                const OpponentModel::UndoMoveFn& undoMoveFn) {
+Move Skill::pick_best_with_cnn(const RootMoves& rootMoves, size_t multiPV, Position& pos, int opponentElo, OpponentModel* model,
+                                const OpponentModel::EvalFn& evalFn, const OpponentModel::DoMoveFn& doMoveFn, const OpponentModel::UndoMoveFn& undoMoveFn) {
     if (!model || !model->is_ready() || rootMoves.empty())
         return pick_best(rootMoves, multiPV);
 
     std::vector<Move> candidates;
     candidates.reserve(multiPV);
+    
     for (size_t i = 0; i < std::min(rootMoves.size(), multiPV); ++i)
         candidates.push_back(rootMoves[i].pv[0]);
 
@@ -2012,8 +2007,8 @@ Move Skill::pick_best_with_cnn(const RootMoves& rootMoves,
         }
     }
 
-    sync_cout << "explotative move chosen: " << UCIEngine::move(chosenMove, pos.is_chess960())
-              << " (combined=" << bestCombined << ")" << sync_endl;
+    sync_cout << "Explotative move chosen: " << UCIEngine::move(chosenMove, pos.is_chess960())
+              << " (combined exploit score = " << bestCombined << ")" << sync_endl;
 
     best = chosenMove;
 

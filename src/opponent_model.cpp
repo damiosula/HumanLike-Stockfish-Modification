@@ -46,7 +46,6 @@ std::string OpponentModel::move_to_uci(Move m) {
     return result;
 }
 
-// Flips the board for black moves into white's perspecrtive for the maia model to understand
 static std::string flip_uci(const std::string& uci) {
     auto flip_rank = [](char c) -> char {
         if (c >= '1' && c <= '8')
@@ -209,7 +208,7 @@ std::vector<OpponentResponse>OpponentModel::predict_responses(const Position& po
         outputTensors = ort->session->Run(
             Ort::RunOptions{nullptr}, inputNames, inputs, 2, outputNames, 1);
     } catch (const Ort::Exception& e) {
-        sync_cout << "WARNING: OpponentElo " << opponentElo << " is likely out of the model's supported range — skipping opponent model" << sync_endl;
+        sync_cout << "WARNING: OpponentElo " << opponentElo << " is out of the model's range. Not using opponent model" << sync_endl;
         return responses;
     }
 
@@ -304,7 +303,7 @@ std::vector<MoveExploitability>OpponentModel::rank_candidate_moves(Position& pos
         auto responses = predict_responses(pos, opponentElo, 5);
 
         sync_cout << "Candidate move: " << move_to_uci(move)
-                  << " baseline cp (opp pov) = " << evalAfterCandidate
+                  << " Eval from opponents PoV = " << evalAfterCandidate
                   << " trap potential = " << exploit.trapPotential
                   << "\nOpponent's top responses:" << sync_endl;
 
@@ -347,6 +346,7 @@ std::vector<MoveExploitability>OpponentModel::rank_candidate_moves(Position& pos
               [](const MoveExploitability& a, const MoveExploitability& b) {
                   return a.expectedValue > b.expectedValue;
               });
+              
     return rankings;
 }
 

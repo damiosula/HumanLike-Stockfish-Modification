@@ -214,14 +214,8 @@ struct Skill {
     bool time_to_pick(Depth depth) const { return depth == 1 + int(level); }
     Move pick_best(const RootMoves&, size_t multiPV);
 
-    Move pick_best_with_cnn(const RootMoves& rootMoves,
-                            size_t multiPV,
-                            Position& pos,
-                            int opponentElo,
-                            OpponentModel* model,
-                            const OpponentModel::EvalFn& evalFn,
-                            const OpponentModel::DoMoveFn& doMoveFn,
-                            const OpponentModel::UndoMoveFn& undoMoveFn);
+    Move pick_best_with_cnn(const RootMoves& rootMoves, size_t multiPV, Position& pos, int opponentElo, OpponentModel* model,
+                            const OpponentModel::EvalFn& evalFn, const OpponentModel::DoMoveFn& doMoveFn, const OpponentModel::UndoMoveFn& undoMoveFn);
 
     double level;
     Move   best = Move::none();

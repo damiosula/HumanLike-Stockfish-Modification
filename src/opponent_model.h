@@ -56,9 +56,9 @@ class OpponentModel {
     }
 
    private:
-    float trap_potential_weight = 0.4f;
-    float blunder_rate_weight = 0.4f;
-    float avg_opp_resp_rating_weight = 0.2f;
+    float trap_potential_weight = 0.33f;
+    float blunder_rate_weight = 0.33f;
+    float avg_opp_resp_rating_weight = 0.33f;
     bool modelLoaded = false;
 
     struct OrtContext;
