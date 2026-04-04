@@ -19,10 +19,9 @@ struct OpponentResponse {
 
 struct MoveExploitability {
     Move move;
-    float avgOpponentResponseRating; 
-    float blunderRate;
-    float trapPotential; 
-    float expectedValue; 
+    float avgResponseEvalGain;   
+    float bestResponseEvalGain; 
+    float expectedValue;
 };
 
 class OpponentModel {
@@ -49,16 +48,14 @@ class OpponentModel {
 
     bool is_ready() const { return modelLoaded; }
 
-    void set_weights(float trapPotentialWeight, float blunderRateWeight, float avgOppRespRatingWeight) {
-        trap_potential_weight = trapPotentialWeight;
-        blunder_rate_weight = blunderRateWeight;
-        avg_opp_resp_rating_weight = avgOppRespRatingWeight;
+    void set_weights(float avgExploitGainWeight, float BestResponseEvalGainWeight) {
+        avg_response_eval_gain_weight = avgExploitGainWeight;
+        best_response_eval_gain_weight = BestResponseEvalGainWeight;
     }
 
    private:
-    float trap_potential_weight = 0.33f;
-    float blunder_rate_weight = 0.33f;
-    float avg_opp_resp_rating_weight = 0.33f;
+    float avg_response_eval_gain_weight = 0.5f;
+    float best_response_eval_gain_weight = 0.5f;
     bool modelLoaded = false;
 
     struct OrtContext;

@@ -297,46 +297,48 @@ std::vector<MoveExploitability>OpponentModel::rank_candidate_moves(Position& pos
 
         Value evalAfterCandidate = evalFn(pos);
 
-        exploit.trapPotential = evaluate_trap_potential(pos, Move::none(), opponentElo,
-                                                        evalFn, doMoveFn, undoMoveFn);
-
         auto responses = predict_responses(pos, opponentElo, 5);
 
         sync_cout << "Candidate move: " << move_to_uci(move)
                   << " Eval from opponents PoV = " << evalAfterCandidate
-                  << " trap potential = " << exploit.trapPotential
                   << "\nOpponent's top responses:" << sync_endl;
 
-        float expectedOutcome = 0.0f;
-        float totalProb = 0.0f;
-        float blunderProb = 0.0f;
+        struct RespResult { Move move; float probability; float rawSum; };
+        std::vector<RespResult> respResults;
+        float minRawSum = std::numeric_limits<float>::max();
 
         for (const auto& resp : responses) {
-            float outcome = evaluate_after_opponent_response(pos, resp, evalFn,
-                                                             doMoveFn, undoMoveFn,
-                                                             evalAfterCandidate);
-            sync_cout << move_to_uci(resp.move)
-                      << " prob of move = " << std::setprecision(3) << resp.probability
-                      << " eval outcome = " << outcome
-                      << (outcome > 0.1f ? " (blunder)" : "") << sync_endl;
-            expectedOutcome += resp.probability * outcome;
-            totalProb += resp.probability;
+            float rawSum = evaluate_after_opponent_response(pos, resp, evalFn,
+                                                            doMoveFn, undoMoveFn,
+                                                            evalAfterCandidate);
+            respResults.push_back({resp.move, resp.probability, rawSum});
+            minRawSum = std::min(minRawSum, rawSum);
+        }
 
-            if (outcome > 0.1f)
-                blunderProb += resp.probability;
+        float norm = std::max(std::abs(static_cast<float>(evalAfterCandidate)), 300.0f);
+
+        float weightedRawSum = 0.0f;
+        float totalProb = 0.0f;
+
+        for (const auto& rr : respResults) {
+            float normalised = std::tanh(rr.rawSum / norm);
+            sync_cout << move_to_uci(rr.move)
+                      << " prob of move = " << std::setprecision(3) << rr.probability
+                      << " eval outcome = " << normalised << sync_endl;
+            weightedRawSum += rr.probability * rr.rawSum;
+            totalProb += rr.probability;
         }
 
         undoMoveFn(pos, move);
 
-        float meanOutcome = (totalProb > 0 ? expectedOutcome / totalProb : 0.0f);
-        exploit.blunderRate = blunderProb;
-        exploit.avgOpponentResponseRating = std::clamp(0.5f + 0.5f * meanOutcome, 0.0f, 1.0f);
-        exploit.expectedValue = trap_potential_weight * exploit.trapPotential
-                              + blunder_rate_weight * exploit.blunderRate
-                              + avg_opp_resp_rating_weight * exploit.avgOpponentResponseRating;
+        float meanRawSum = (totalProb > 0 ? weightedRawSum / totalProb : 0.0f);
+        exploit.avgResponseEvalGain = std::clamp(0.5f + 0.5f * std::tanh(meanRawSum / norm), 0.0f, 1.0f);
+        exploit.bestResponseEvalGain = std::clamp(0.5f + 0.5f * std::tanh(minRawSum / norm), 0.0f, 1.0f);
+        exploit.expectedValue = avg_response_eval_gain_weight  * exploit.avgResponseEvalGain
+                                 + best_response_eval_gain_weight * exploit.bestResponseEvalGain;
 
-        sync_cout << "blunder rate = " << std::setprecision(3) << exploit.blunderRate
-                  << " difficulty = " << exploit.avgOpponentResponseRating
+        sync_cout << "avg response eval gain = " << std::setprecision(3) << exploit.avgResponseEvalGain
+                  << " best response eval gain = " << exploit.bestResponseEvalGain
                   << " expected value = " << exploit.expectedValue << sync_endl;
 
         rankings.push_back(exploit);
@@ -346,52 +348,8 @@ std::vector<MoveExploitability>OpponentModel::rank_candidate_moves(Position& pos
               [](const MoveExploitability& a, const MoveExploitability& b) {
                   return a.expectedValue > b.expectedValue;
               });
-              
+
     return rankings;
-}
-
-float OpponentModel::evaluate_trap_potential(Position& pos, Move stockfishMove, int opponentElo,
-                                              const EvalFn& evalFn, const DoMoveFn& doMoveFn,
-                                              const UndoMoveFn& undoMoveFn) const {
-    if (!modelLoaded)
-        return 0.0f;
-
-    StateInfo stSFMove;
-    bool playedStockfishMove = stockfishMove != Move::none();
-    if (playedStockfishMove)
-        doMoveFn(pos, stockfishMove, stSFMove);
-
-    Value evalFromOppPerspective = evalFn(pos);
-
-    auto responses = predict_responses(pos, opponentElo, 10);
-
-    float trapScore = 0.0f;
-    int plausible = 0;
-    int badResponses = 0;
-
-    for (const auto& resp : responses) {
-        if (resp.probability <= 0.05f)
-            continue;
-        ++plausible;
-
-        StateInfo st2;
-        doMoveFn(pos, resp.move, st2);
-        Value eval = evalFn(pos);
-        undoMoveFn(pos, resp.move);
-
-        if (eval + evalFromOppPerspective > 100) {
-            ++badResponses;
-            trapScore += resp.probability;
-        }
-    }
-
-    if (stockfishMove)
-        undoMoveFn(pos, stockfishMove);
-
-    if (plausible > 3 && badResponses >= 2)
-        return std::min(1.0f, trapScore * 1.5f);
-
-    return trapScore;
 }
 
 float OpponentModel::evaluate_after_opponent_response(Position& pos, const OpponentResponse& oppResponse, const EvalFn& evalFn,
@@ -399,9 +357,9 @@ float OpponentModel::evaluate_after_opponent_response(Position& pos, const Oppon
                                                        Value evalAfterCandidate) const {
     StateInfo st;
     doMoveFn(pos, oppResponse.move, st);
-    float delta = (static_cast<float>(evalFn(pos)) + static_cast<float>(evalAfterCandidate)) / 300.0f;
+    float rawSum = static_cast<float>(evalFn(pos)) + static_cast<float>(evalAfterCandidate);
     undoMoveFn(pos, oppResponse.move);
-    return std::tanh(delta);
+    return rawSum;
 }
 
 } // namespace Stockfish

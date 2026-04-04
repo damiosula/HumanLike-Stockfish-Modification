@@ -158,14 +158,12 @@ Engine::Engine(std::optional<std::string> path) :
     auto update_weights = [this](const Option&) -> std::optional<std::string> {
         if (opponentModel)
             opponentModel->set_weights(
-                float(int(options["TrapPotentialWeight"])) / 100.0f,
-                float(int(options["BlunderRateWeight"])) / 100.0f,
-                float(int(options["AvgOppRespRatingWeight"])) / 100.0f);
+                float(int(options["AvgResponseEvalGainWeight"])) / 100.0f,
+                float(int(options["BestResponseEvalGainWeight"]))      / 100.0f);
         return std::nullopt;
     };
-    options.add("TrapPotentialWeight",       Option(33, 0, 100, update_weights));
-    options.add("BlunderRateWeight",    Option(34, 0, 100, update_weights));
-    options.add("AvgOppRespRatingWeight", Option(33, 0, 100, update_weights));
+    options.add("AvgResponseEvalGainWeight", Option(50, 0, 100, update_weights));
+    options.add("BestResponseEvalGainWeight",      Option(50, 0, 100, update_weights));
 
     load_networks();
     resize_threads();
@@ -349,9 +347,8 @@ void Engine::load_onnx_file(const std::string& path) {
 
         if (opponentModel->load_model(path)) {
             opponentModel->set_weights(
-                float(int(options["TrapPotentialWeight"])) / 100.0f,
-                float(int(options["BlunderRateWeight"])) / 100.0f,
-                float(int(options["AvgOppRespRatingWeight"])) / 100.0f);
+                float(int(options["AvgResponseEvalGainWeight"]))  / 100.0f,
+                float(int(options["BestResponseEvalGainWeight"])) / 100.0f);
         } else
             sync_cout << "Failed to load model from " << path << sync_endl;
     }
