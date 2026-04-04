@@ -1958,7 +1958,7 @@ Move Skill::pick_best_with_cnn(const RootMoves& rootMoves, size_t multiPV, Posit
 
     std::vector<Move> candidates;
     candidates.reserve(multiPV);
-    
+
     for (size_t i = 0; i < std::min(rootMoves.size(), multiPV); ++i)
         candidates.push_back(rootMoves[i].pv[0]);
 
@@ -1997,7 +1997,7 @@ Move Skill::pick_best_with_cnn(const RootMoves& rootMoves, size_t multiPV, Posit
 
         sync_cout << UCIEngine::move(exploit.move, pos.is_chess960())
                   << " expected exploit value = " << exploit.expectedValue
-                  << " eval penalty from top move =" << evalPenalty
+                  << " eval penalty from top move = " << evalPenalty
                   << " combined = " << combined << sync_endl;
 
         if (combined > bestCombined)
