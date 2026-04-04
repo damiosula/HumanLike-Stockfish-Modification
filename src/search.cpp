@@ -161,6 +161,7 @@ Search::Worker::Worker(SharedState&                    sharedState,
                        NumaReplicatedAccessToken       token) :
     // Unpack the SharedState struct into member variables
     sharedHistory(sharedState.sharedHistories.at(token.get_numa_index())),
+    opponentModel(sharedState.opponentModel),
     threadIdx(threadId),
     numaThreadIdx(numaThreadId),
     numaTotal(numaTotalThreads),
@@ -304,7 +305,7 @@ void Search::Worker::iterative_deepening() {
 
     // When playing with strength handicap enable MultiPV search that we will
     // use behind-the-scenes to retrieve a set of possible moves.
-    if (skill.enabled())
+    if (skill.enabled() || (opponentModel && opponentModel->is_ready() && int(options["OpponentElo"]) > 0))
         multiPV = std::max(multiPV, size_t(4));
 
     multiPV = std::min(multiPV, rootMoves.size());
@@ -471,8 +472,13 @@ void Search::Worker::iterative_deepening() {
 
         // If the skill level is enabled and time is up, pick a sub-optimal best move
         if (skill.enabled() && skill.time_to_pick(rootDepth))
-            skill.pick_best(rootMoves, multiPV);
-
+            skill.pick_best_with_cnn(
+                rootMoves, multiPV, rootPos,
+                int(options["OpponentElo"]), opponentModel,
+                [this](const Position& p) { return evaluate(p); },
+                [this](Position& p, Move m, StateInfo& st) { do_move(p, m, st, nullptr); },
+                [this](Position& p, Move m) { undo_move(p, m); });
+        
         // Use part of the gained time from a previous stable move for the current move
         for (auto&& th : threads)
         {
@@ -535,11 +541,18 @@ void Search::Worker::iterative_deepening() {
 
     mainThread->previousTimeReduction = timeReduction;
 
-    // If the skill level is enabled, swap the best PV line with the sub-optimal one
-    if (skill.enabled())
-        std::swap(rootMoves[0],
-                  *std::find(rootMoves.begin(), rootMoves.end(),
-                             skill.best ? skill.best : skill.pick_best(rootMoves, multiPV)));
+    {
+        Move pickedMove = skill.best
+                            ? skill.best
+                            : skill.pick_best_with_cnn(
+                                rootMoves, multiPV, rootPos,
+                                int(options["OpponentElo"]),
+                                opponentModel,
+                                [this](const Position& p) { return evaluate(p); },
+                                [this](Position& p, Move m, StateInfo& st) { do_move(p, m, st, nullptr); },
+                                [this](Position& p, Move m) { undo_move(p, m); });
+        std::swap(rootMoves[0], *std::find(rootMoves.begin(), rootMoves.end(), pickedMove));
+    }
 }
 
 
@@ -1933,6 +1946,71 @@ Move Skill::pick_best(const RootMoves& rootMoves, size_t multiPV) {
             best     = rootMoves[i].pv[0];
         }
     }
+
+    return best;
+}
+
+
+Move Skill::pick_best_with_cnn(const RootMoves& rootMoves, size_t multiPV, Position& pos, int opponentElo, OpponentModel* model,
+                                const OpponentModel::EvalFn& evalFn, const OpponentModel::DoMoveFn& doMoveFn, const OpponentModel::UndoMoveFn& undoMoveFn) {
+    if (!model || !model->is_ready() || rootMoves.empty())
+        return pick_best(rootMoves, multiPV);
+
+    std::vector<Move> candidates;
+    candidates.reserve(multiPV);
+
+    for (size_t i = 0; i < std::min(rootMoves.size(), multiPV); ++i)
+        candidates.push_back(rootMoves[i].pv[0]);
+
+    Move bestMove = candidates[0]; 
+
+    auto rankings = model->rank_candidate_moves(pos, candidates, opponentElo, evalFn, doMoveFn, undoMoveFn);
+
+    if (rankings.empty())
+    {
+        best = bestMove;
+        return best;
+    }
+
+    Value bestEval = rootMoves[0].score;
+
+    float bestCombined = -999.0f;
+    Move chosenMove = bestMove;
+
+    sync_cout << "Combined scores vs Opponent:" << sync_endl;
+
+    for (const auto& exploit : rankings)
+    {
+        Value moveEval = bestEval;
+        for (size_t i = 0; i < std::min(rootMoves.size(), multiPV); ++i)
+        {
+            if (rootMoves[i].pv[0] == exploit.move)
+            {
+                moveEval = rootMoves[i].score;
+                break;
+            }
+        }
+
+        float evalDiff = std::max(0.0f, float(bestEval - moveEval));
+        float evalPenalty = std::tanh(evalDiff / 300.0f);
+        float combined = exploit.expectedValue - evalPenalty;
+
+        sync_cout << UCIEngine::move(exploit.move, pos.is_chess960())
+                  << " expected exploit value = " << exploit.expectedValue
+                  << " eval penalty from top move = " << evalPenalty
+                  << " combined = " << combined << sync_endl;
+
+        if (combined > bestCombined)
+        {
+            bestCombined = combined;
+            chosenMove = exploit.move;
+        }
+    }
+
+    sync_cout << "Explotative move chosen: " << UCIEngine::move(chosenMove, pos.is_chess960())
+              << " (combined exploit score = " << bestCombined << ")" << sync_endl;
+
+    best = chosenMove;
 
     return best;
 }

@@ -35,6 +35,7 @@
 #include "nnue/nnue_common.h"
 #include "nnue/nnue_misc.h"
 #include "numa.h"
+#include "opponent_model.h"
 #include "perft.h"
 #include "position.h"
 #include "search.h"
@@ -147,6 +148,25 @@ Engine::Engine(std::optional<std::string> path) :
           return std::nullopt;
       }));
 
+    options.add("OpponentElo", Option(0, 0, 2800));
+    options.add(  //
+      "ONNXFilePath", Option("", [this](const Option& o) {
+          load_onnx_file(o);
+          return std::nullopt;
+      }));
+
+    auto update_weights = [this](const Option&) -> std::optional<std::string> {
+        if (opponentModel)
+            opponentModel->set_weights(
+                float(int(options["TrapPotentialWeight"])) / 100.0f,
+                float(int(options["BlunderRateWeight"])) / 100.0f,
+                float(int(options["AvgOppRespRatingWeight"])) / 100.0f);
+        return std::nullopt;
+    };
+    options.add("TrapPotentialWeight",       Option(33, 0, 100, update_weights));
+    options.add("BlunderRateWeight",    Option(34, 0, 100, update_weights));
+    options.add("AvgOppRespRatingWeight", Option(33, 0, 100, update_weights));
+
     load_networks();
     resize_threads();
 }
@@ -242,7 +262,7 @@ void Engine::set_numa_config_from_option(const std::string& o) {
 
 void Engine::resize_threads() {
     threads.wait_for_search_finished();
-    threads.set(numaContext.get_numa_config(), {options, threads, tt, sharedHists, networks},
+    threads.set(numaContext.get_numa_config(), {options, threads, tt, sharedHists, networks, opponentModel.get()},
                 updateContext);
 
     // Reallocate the hash with the new threadpool size
@@ -315,6 +335,27 @@ void Engine::load_small_network(const std::string& file) {
       [this, &file](NN::Networks& networks_) { networks_.small.load(binaryDirectory, file); });
     threads.clear();
     threads.ensure_network_replicated();
+}
+
+void Engine::load_onnx_file(const std::string& path) {
+    wait_for_search_finished();
+
+    if (path.empty()) {
+        opponentModel.reset();
+        sync_cout << "Opponent model disabled" << sync_endl;
+    } else {
+        if (!opponentModel)
+            opponentModel = std::make_unique<OpponentModel>();
+
+        if (opponentModel->load_model(path)) {
+            opponentModel->set_weights(
+                float(int(options["TrapPotentialWeight"])) / 100.0f,
+                float(int(options["BlunderRateWeight"])) / 100.0f,
+                float(int(options["AvgOppRespRatingWeight"])) / 100.0f);
+        } else
+            sync_cout << "Failed to load model from " << path << sync_endl;
+    }
+    resize_threads();
 }
 
 void Engine::save_network(const std::pair<std::optional<std::string>, std::string> files[2]) {

@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -32,6 +33,7 @@
 #include "history.h"
 #include "nnue/network.h"
 #include "numa.h"
+#include "opponent_model.h"
 #include "position.h"
 #include "search.h"
 #include "syzygy/tbprobe.h"  // for Stockfish::Depth
@@ -91,6 +93,8 @@ class Engine {
     void load_small_network(const std::string& file);
     void save_network(const std::pair<std::optional<std::string>, std::string> files[2]);
 
+    void load_onnx_file(const std::string& path);
+
     // utility functions
 
     void trace_eval() const;
@@ -125,6 +129,8 @@ class Engine {
     Search::SearchManager::UpdateContext  updateContext;
     std::function<void(std::string_view)> onVerifyNetworks;
     std::map<NumaIndex, SharedHistories>  sharedHists;
+
+    std::unique_ptr<OpponentModel> opponentModel;
 };
 
 }  // namespace Stockfish

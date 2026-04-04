@@ -37,6 +37,7 @@
 #include "nnue/network.h"
 #include "nnue/nnue_accumulator.h"
 #include "numa.h"
+#include "opponent_model.h"
 #include "position.h"
 #include "score.h"
 #include "syzygy/tbprobe.h"
@@ -138,18 +139,21 @@ struct SharedState {
                 ThreadPool&                                               threadPool,
                 TranspositionTable&                                       transpositionTable,
                 std::map<NumaIndex, SharedHistories>&                     sharedHists,
-                const LazyNumaReplicatedSystemWide<Eval::NNUE::Networks>& nets) :
+                const LazyNumaReplicatedSystemWide<Eval::NNUE::Networks>& nets,
+                OpponentModel* opponentModel = nullptr) :
         options(optionsMap),
         threads(threadPool),
         tt(transpositionTable),
         sharedHistories(sharedHists),
-        networks(nets) {}
+        networks(nets),
+        opponentModel(opponentModel) {}
 
     const OptionsMap&                                         options;
     ThreadPool&                                               threads;
     TranspositionTable&                                       tt;
     std::map<NumaIndex, SharedHistories>&                     sharedHistories;
     const LazyNumaReplicatedSystemWide<Eval::NNUE::Networks>& networks;
+    OpponentModel* opponentModel = nullptr;
 };
 
 class Worker;
@@ -209,6 +213,9 @@ struct Skill {
     bool enabled() const { return level < 20.0; }
     bool time_to_pick(Depth depth) const { return depth == 1 + int(level); }
     Move pick_best(const RootMoves&, size_t multiPV);
+
+    Move pick_best_with_cnn(const RootMoves& rootMoves, size_t multiPV, Position& pos, int opponentElo, OpponentModel* model,
+                            const OpponentModel::EvalFn& evalFn, const OpponentModel::DoMoveFn& doMoveFn, const OpponentModel::UndoMoveFn& undoMoveFn);
 
     double level;
     Move   best = Move::none();
@@ -296,6 +303,8 @@ class Worker {
 
     TTMoveHistory    ttMoveHistory;
     SharedHistories& sharedHistory;
+
+    OpponentModel* opponentModel = nullptr;
 
    private:
     void iterative_deepening();
