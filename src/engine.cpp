@@ -159,11 +159,11 @@ Engine::Engine(std::optional<std::string> path) :
         if (opponentModel)
             opponentModel->set_weights(
                 float(int(options["AvgResponseEvalGainWeight"])) / 100.0f,
-                float(int(options["BestResponseEvalGainWeight"]))      / 100.0f);
+                float(int(options["BestResponseEvalGainWeight"])) / 100.0f);
         return std::nullopt;
     };
     options.add("AvgResponseEvalGainWeight", Option(50, 0, 100, update_weights));
-    options.add("BestResponseEvalGainWeight",      Option(50, 0, 100, update_weights));
+    options.add("BestResponseEvalGainWeight", Option(50, 0, 100, update_weights));
 
     load_networks();
     resize_threads();

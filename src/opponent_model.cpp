@@ -308,9 +308,7 @@ std::vector<MoveExploitability>OpponentModel::rank_candidate_moves(Position& pos
         float minRawSum = std::numeric_limits<float>::max();
 
         for (const auto& resp : responses) {
-            float rawSum = evaluate_after_opponent_response(pos, resp, evalFn,
-                                                            doMoveFn, undoMoveFn,
-                                                            evalAfterCandidate);
+            float rawSum = evaluate_after_opponent_response(pos, resp, evalFn, doMoveFn, undoMoveFn, evalAfterCandidate);
             respResults.push_back({resp.move, resp.probability, rawSum});
             minRawSum = std::min(minRawSum, rawSum);
         }
@@ -334,7 +332,7 @@ std::vector<MoveExploitability>OpponentModel::rank_candidate_moves(Position& pos
         float meanRawSum = (totalProb > 0 ? weightedRawSum / totalProb : 0.0f);
         exploit.avgResponseEvalGain = std::clamp(0.5f + 0.5f * std::tanh(meanRawSum / norm), 0.0f, 1.0f);
         exploit.bestResponseEvalGain = std::clamp(0.5f + 0.5f * std::tanh(minRawSum / norm), 0.0f, 1.0f);
-        exploit.expectedValue = avg_response_eval_gain_weight  * exploit.avgResponseEvalGain
+        exploit.expectedValue = avg_response_eval_gain_weight * exploit.avgResponseEvalGain
                                  + best_response_eval_gain_weight * exploit.bestResponseEvalGain;
 
         sync_cout << "avg response eval gain = " << std::setprecision(3) << exploit.avgResponseEvalGain

@@ -19,7 +19,7 @@ struct OpponentResponse {
 
 struct MoveExploitability {
     Move move;
-    float avgResponseEvalGain;   
+    float avgResponseEvalGain;
     float bestResponseEvalGain; 
     float expectedValue;
 };
